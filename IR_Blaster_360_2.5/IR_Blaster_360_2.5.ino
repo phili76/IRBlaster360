@@ -1149,7 +1149,7 @@ void sendCodePage(Code& selCode, int httpcode)
     server.sendContent("        <div class='col-md-12'>\n");
     server.sendContent("          <ul class='list-unstyled'>\n");
     server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</a></pre></li>\n");
+    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]></a></pre></li>\n");
     server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
     server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</pre></li>\n");
     server.sendContent("          </ul>\n");
