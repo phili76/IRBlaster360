@@ -7,6 +7,9 @@ ESP8266 IR Blaster with FHEM Integration
 
 * get current time from ntp
 * uptime display in webserver footer with bootdate
-* configmenu TODO: saving
+* configure settings in webinterface(see pic)
+* TODO: save config back to configfile
 
-removed json for storage because it lead to a memory leak.
+![config](/images/config.png)
+
+
