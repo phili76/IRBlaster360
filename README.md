@@ -7,6 +7,7 @@ ESP8266 IR Blaster with FHEM Integration
 
 * get current time from ntp
 * uptime display in webserver footer with bootdate
+* set default mDNS hostname if not configured
 * configure settings in webinterface(see pic)
 * TODO: save config back to configfile
 
