@@ -9,6 +9,7 @@
 /*    IRremoteESP8266                                                               */
 /*    WiFiManager                                                                   */
 /*    NTPClient                                                                     */
+/*    Time                                                                          */
 /************************************************************************************/
 
 /**************************************************************************
@@ -28,6 +29,7 @@
 #include <Ticker.h>
 #include <Dns.h>
 #include <NTPClient.h>
+#include <TimeLib.h>
 
 
 /**************************************************************************
@@ -110,6 +112,7 @@ const char* poolServerName = "europe.pool.ntp.org";
 char boottime[40] = "";                                       // 
 NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
 
+time_t timedate = 0;
 
 /**************************************************************************
    Callback notifying us of the need to save config
@@ -306,7 +309,10 @@ void setup()
       timeClient.begin();                                                               // Get the time
       if (timeClient.update()) 
       {
-        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
+        setTime(timeClient.getEpochTime());
+        String boottimetemp = String(hour()) + ":" + String(minute()) + " " + String(day()) + "." + String(month()) + "." + String(year());
+//        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
+        strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
       }
       else
       { 
@@ -1132,7 +1138,7 @@ void sendCodePage(Code& selCode, int httpcode)
     server.sendContent("        <div class='col-md-12'>\n");
     server.sendContent("          <ul class='list-unstyled'>\n");
     server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</a></pre></li>\n");
+    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]\">http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</a></pre></li>\n");
     server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
     server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</pre></li>\n");
     server.sendContent("          </ul>\n");
@@ -1607,11 +1613,10 @@ void loop() {
     dumpCode(&results);                                           // Output the results as source code
     
     if (last_recv.valid)  Serial.println( last_recv.raw );
-    if (last_recv.valid)  Serial.println( last_recv.timestamp );
-    if (last_recv_2.valid) Serial.println( last_recv_2.raw );                           // Buffersize jsonbuffer max 15k!
-    if (last_recv_3.valid) Serial.println( last_recv_3.raw );                           // Buffersize jsonbuffer max 15k!
-    if (last_recv_4.valid) Serial.println( last_recv_4.raw );                           // Buffersize jsonbuffer max 15k!
-    if (last_recv_5.valid) Serial.println( last_recv_5.raw );                           // Buffersize jsonbuffer max 15k!
+    if (last_recv_2.valid) Serial.println( last_recv_2.raw );
+    if (last_recv_3.valid) Serial.println( last_recv_3.raw );
+    if (last_recv_4.valid) Serial.println( last_recv_4.raw );
+    if (last_recv_5.valid) Serial.println( last_recv_5.raw );
     irrecv.resume();                                              // Prepare for the next value
     digitalWrite(LED_PIN, LOW);                                    // Turn on the LED for 0.5 seconds
     ticker.attach(0.5, disableLed);
