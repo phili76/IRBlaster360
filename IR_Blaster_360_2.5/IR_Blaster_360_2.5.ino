@@ -398,7 +398,7 @@ void setup()
     });
 
     server.on("/received", []() {
-      DEBUG_PRINT("Connection received: received");
+      DEBUG_PRINT("Connection received: /received");
       int id = server.arg("id").toInt();
       String output;
       if (id == 1 && last_recv.valid) {
@@ -415,6 +415,7 @@ void setup()
         sendHomePage("Code does not exist", "Alert", 2, 404); // 404
       }
     });
+    server.on("/config", Handle_config);
 
     server.on("/upload", Handle_upload);
 
@@ -425,7 +426,7 @@ void setup()
     server.on("/reset", Handle_ResetWiFi);
     
     server.on("/", []() {
-      DEBUG_PRINT("Connection received");
+      DEBUG_PRINT("Connection received: /");
       sendHomePage(); // 200
     });
 
@@ -444,6 +445,11 @@ void setup()
     irrecv.enableIRIn();
     DEBUG_PRINT("Ready to send and receive IR signals");
     
+  }
+  void Handle_config()
+  {
+    DEBUG_PRINT("Connection received - /config");
+    sendConfigPage();  //todo
   }
 
   void Handle_ResetWiFi()
@@ -507,6 +513,7 @@ void Handle_Style()
   server.sendHeader("Connection", "close");
   server.send(200, "text/css", GetStyle());
 }
+
 void Handle_upload()
 {
   server.sendHeader("Connection", "close");
@@ -1014,6 +1021,8 @@ void sendHeader(int httpcode)
   server.sendContent("              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n");
   server.sendContent("            <li class='active'>\n");
   server.sendContent("              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n");
+  server.sendContent("            <li class='active'>\n");
+  server.sendContent("              <a href='/config'>Config</a></li>\n");
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
@@ -1030,6 +1039,125 @@ void sendFooter()
   server.sendContent("</html>\n");
   server.client().stop();
 }
+
+/**************************************************************************
+   Send HTML Config page
+**************************************************************************/
+void sendConfigPage()
+{
+  sendConfigPage("", "");
+}
+void sendConfigPage(String message, String header)
+{
+  sendConfigPage(message, header, 0);
+}
+void sendConfigPage(String message, String header, int type)
+{
+  sendConfigPage(message, header, type, 200);
+}
+void sendConfigPage(String message, String header, int type, int httpcode)
+{
+char passcode_conf[40] = "";
+char host_name_conf[40] = "";
+char port_str_conf[20] = "";
+
+if (SPIFFS.begin()) 
+  {
+    DEBUG_PRINT("mounted file system");
+    if (SPIFFS.exists("/config.json")) 
+    {
+      //file exists, reading and loading
+      DEBUG_PRINT("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        DEBUG_PRINT("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        DynamicJsonBuffer jsonBuffer;
+        JsonObject& json = jsonBuffer.parseObject(buf.get());
+        json.printTo(Serial);
+        if (json.success()) {
+          DEBUG_PRINT("\nparsed json");
+
+          if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
+          if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
+          if (json.containsKey("port_str")) {
+            strncpy(port_str_conf, json["port_str"], 20);
+          }
+        } else {
+          DEBUG_PRINT("failed to load json config");
+        }
+      }
+    }
+  } 
+  else 
+  {
+    DEBUG_PRINT("failed to mount FS");
+  }
+
+
+  sendHeader(httpcode);
+  if (type == 1)
+    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+  if (type == 2)
+    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+  if (type == 3)
+    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+  server.sendContent("      <div class='row'>\n");
+  server.sendContent("        <div class='col-md-12'>\n");
+  server.sendContent("          <h3>Config</h3>\n");
+  server.sendContent("          <table class='table table-striped' style='table-layout: fixed;'>\n");
+  server.sendContent("            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"); //Title
+  server.sendContent("            <tbody>\n");
+  server.sendContent("            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + String(getTime) + "</code></td><td><input type='checkbox' id='ntpok' name='getTime' value='" + String(getTime) + "'></td></tr>\n");
+  server.sendContent("            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td><input type='text' id='ntpserver' name='ntpserver' value='" + String(poolServerName) + "'></td></tr>\n");
+  server.sendContent("            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n");
+  server.sendContent("            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n");
+  server.sendContent("            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' value='" + String(port_str_conf) + "'></td></tr>\n");
+
+
+  /*if (last_send.valid)
+    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send.timestamp) + "</td><td><code>" + String(last_send.data) + "</code></td><td><code>" + String(last_send.encoding) + "</code></td><td><code>" + String(last_send.bits) + "</code></td><td><code>" + String(last_send.address) + "</code></td></tr>\n");
+  if (last_send_2.valid)
+    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_2.timestamp) + "</td><td><code>" + String(last_send_2.data) + "</code></td><td><code>" + String(last_send_2.encoding) + "</code></td><td><code>" + String(last_send_2.bits) + "</code></td><td><code>" + String(last_send_2.address) + "</code></td></tr>\n");
+  if (last_send_3.valid)
+    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_3.timestamp) + "</td><td><code>" + String(last_send_3.data) + "</code></td><td><code>" + String(last_send_3.encoding) + "</code></td><td><code>" + String(last_send_3.bits) + "</code></td><td><code>" + String(last_send_3.address) + "</code></td></tr>\n");
+  if (last_send_4.valid)
+    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_4.timestamp) + "</td><td><code>" + String(last_send_4.data) + "</code></td><td><code>" + String(last_send_4.encoding) + "</code></td><td><code>" + String(last_send_4.bits) + "</code></td><td><code>" + String(last_send_4.address) + "</code></td></tr>\n");
+  if (last_send_5.valid)
+    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_5.timestamp) + "</td><td><code>" + String(last_send_5.data) + "</code></td><td><code>" + String(last_send_5.encoding) + "</code></td><td><code>" + String(last_send_5.bits) + "</code></td><td><code>" + String(last_send_5.address) + "</code></td></tr>\n");
+  if (!last_send.valid && !last_send_2.valid && !last_send_3.valid && !last_send_4.valid && !last_send_5.valid)
+    server.sendContent("              <tr><td colspan='5' class='text-center'><em>No codes sent</em></td></tr>");
+  server.sendContent("            </tbody></table>\n");
+  server.sendContent("          </div></div>\n");
+  server.sendContent("      <div class='row'>\n");
+  server.sendContent("        <div class='col-md-12'>\n");
+  server.sendContent("          <h3>Codes Received</h3>\n");
+  server.sendContent("          <table class='table table-striped' style='table-layout: fixed;'>\n");
+  server.sendContent("            <thead><tr><th>Details</th><th>Command</th><th>Type</th><th>Length</th><th>Address</th></tr></thead>\n"); //Title
+  server.sendContent("            <tbody>\n");
+  if (last_recv.valid)
+    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=1'>" + String(last_recv.timestamp) + "</a></td><td><code>" + String(last_recv.data) + "</code></td><td><code>" + String(last_recv.encoding) + "</code></td><td><code>" + String(last_recv.bits) + "</code></td><td><code>" + String(last_recv.address) + "</code></td></tr>\n");
+  if (last_recv_2.valid)
+    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=2'>" + String(last_recv_2.timestamp) + "</a></td><td><code>" + String(last_recv_2.data) + "</code></td><td><code>" + String(last_recv_2.encoding) + "</code></td><td><code>" + String(last_recv_2.bits) + "</code></td><td><code>" + String(last_recv_2.address) + "</code></td></tr>\n");
+  if (last_recv_3.valid)
+    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=3'>" + String(last_recv_3.timestamp) + "</a></td><td><code>" + String(last_recv_3.data) + "</code></td><td><code>" + String(last_recv_3.encoding) + "</code></td><td><code>" + String(last_recv_3.bits) + "</code></td><td><code>" + String(last_recv_3.address) + "</code></td></tr>\n");
+  if (last_recv_4.valid)
+    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=4'>" + String(last_recv_4.timestamp) + "</a></td><td><code>" + String(last_recv_4.data) + "</code></td><td><code>" + String(last_recv_4.encoding) + "</code></td><td><code>" + String(last_recv_4.bits) + "</code></td><td><code>" + String(last_recv_4.address) + "</code></td></tr>\n");
+  if (last_recv_5.valid)
+    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=5'>" + String(last_recv_5.timestamp) + "</a></td><td><code>" + String(last_recv_5.data) + "</code></td><td><code>" + String(last_recv_5.encoding) + "</code></td><td><code>" + String(last_recv_5.bits) + "</code></td><td><code>" + String(last_recv_5.address) + "</code></td></tr>\n");
+  if (!last_recv.valid && !last_recv_2.valid && !last_recv_3.valid && !last_recv_4.valid && !last_recv_5.valid)*/
+
+
+  server.sendContent(" <tr><td colspan='5' class='text-center'><em><input type='button' value='Save'><input type='button' value='Cancel'><input type='button' value='Reboot'></em></td></tr>");
+  server.sendContent("            </tbody></table>\n");
+  server.sendContent("          </div></div>\n");
+  sendFooter();
+}
+
 
 /**************************************************************************
    Send HTML main page
@@ -1594,7 +1722,7 @@ void sendMultiCast(String msg) {
 void loop() {
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
-  timeClient.update();
+  timeClient.update();                // update only after 
 
 
 
