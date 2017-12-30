@@ -57,35 +57,18 @@ const String VERSION       = "v2.6ph";
 char passcode[40] = "";
 char host_name[40] = "";
 char port_str[20] = "80";
-/*
-DynamicJsonBuffer jsonBuffer;
-JsonObject& last_code = jsonBuffer.createObject();            // Stores last code
-JsonObject& last_code_2 = jsonBuffer.createObject();          // Stores 2nd to last code
-JsonObject& last_code_3 = jsonBuffer.createObject();          // Stores 3rd to last code
-JsonObject& last_code_4 = jsonBuffer.createObject();          // Stores 4th to last code
-JsonObject& last_code_5 = jsonBuffer.createObject();          // Stores 5th to last code
-JsonObject& last_send = jsonBuffer.createObject();            // Stores last sent
-JsonObject& last_send_2 = jsonBuffer.createObject();          // Stores 2nd last sent
-JsonObject& last_send_3 = jsonBuffer.createObject();          // Stores 3rd last sent
-JsonObject& last_send_4 = jsonBuffer.createObject();          // Stores 4th last sent
-JsonObject& last_send_5 = jsonBuffer.createObject();          // Stores 5th last sent
-*/
-  // Array
-  // Philipp
-  int const codehist = 5; // How many ir codes back
-  int codeidx = 4;  // index to last ir code start at 4 to get 0 on first addition
-  decode_results lastcodeArray[codehist];  // Array 
 
-class Code {
-public:
-char encoding[14] = "";
-char address[20] = "";
-char command[40] = "";
-char data[40] = "";
-String raw = "";
-int bits = 0;
-char timestamp[40] = "";
-bool valid = false;
+class Code 
+{
+  public:
+    char encoding[14] = "";
+    char address[20] = "";
+    char command[40] = "";
+    char data[40] = "";
+    String raw = "";
+    int bits = 0;
+    char timestamp[40] = "";
+    bool valid = false;
 };
 
 Code last_recv;
@@ -120,10 +103,11 @@ unsigned int portMulti = 12345;      // local port to listen on
 String deviceID = "";
 
 //NTP
-const bool getTime = true;                                    // Set to false to disable querying for the time
-const int timeOffset = 3600;                                // Timezone offset in seconds
+bool getTime = true;                                    // Set to false to disable querying for the time
+const int timeOffset = 3600;                                  // Timezone offset in seconds
 WiFiUDP ntpUDP;
-const char* poolServerName = "time.nist.gov";
+const char* poolServerName = "europe.pool.ntp.org";
+char boottime[40] = "";                                       // 
 NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
 
 
@@ -317,8 +301,18 @@ void setup()
     
     DEBUG_PRINT("URL to send commands: http://" + String(host_name) + ".local:" + port_str);
 
-    if (getTime) timeClient.begin(); // Get the time
-
+    if (getTime) 
+    {
+      timeClient.begin();                                                               // Get the time
+      if (timeClient.update()) 
+      {
+        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
+      }
+      else
+      { 
+        getTime = false;                                                             // deactivate if error occours
+      }  
+    }  
 
     // Configure the server
     // JSON handler for more complicated IR blaster routines
@@ -1024,7 +1018,7 @@ void sendHeader(int httpcode)
 **************************************************************************/
 void sendFooter()
 {
-  server.sendContent("      <div class='row'><div class='col-md-12'><em>" + String(millis()) + "ms uptime</em></div></div>\n");
+  server.sendContent("      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n");
   server.sendContent("    </div>\n");
   server.sendContent("  </body>\n");
   server.sendContent("</html>\n");
@@ -1138,7 +1132,7 @@ void sendCodePage(Code& selCode, int httpcode)
     server.sendContent("        <div class='col-md-12'>\n");
     server.sendContent("          <ul class='list-unstyled'>\n");
     server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]></a></pre></li>\n");
+    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</a></pre></li>\n");
     server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
     server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</pre></li>\n");
     server.sendContent("          </ul>\n");
@@ -1149,7 +1143,7 @@ void sendCodePage(Code& selCode, int httpcode)
     server.sendContent("        <div class='col-md-12'>\n");
     server.sendContent("          <ul class='list-unstyled'>\n");
     server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]></a></pre></li>\n");
+    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</a></pre></li>\n");
     server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
     server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</pre></li>\n");
     server.sendContent("          </ul>\n");
@@ -1510,24 +1504,6 @@ void roomba_send(int code, int pulse, int pdelay)
 }
 
 /**************************************************************************
-   Copy JSON objects OLD!!
-**************************************************************************/
-void copyJson(JsonObject& j1, JsonObject& j2) {
-  if (j1.containsKey("data"))     j2["data"] = j1["data"];
-  if (j1.containsKey("encoding")) j2["encoding"] = j1["encoding"];
-  if (j1.containsKey("bits"))     j2["bits"] = j1["bits"];
-  if (j1.containsKey("address"))  j2["address"] = j1["address"];
-  if (j1.containsKey("command"))  j2["command"] = j1["command"];
-  if (j1.containsKey("uint16_t")) j2["uint16_t"] = j1["uint16_t"];
-}
-void copyJsonSend(JsonObject& j1, JsonObject& j2) {
-  if (j1.containsKey("data"))    j2["data"] = j1["data"];
-  if (j1.containsKey("type"))    j2["type"] = j1["type"];
-  if (j1.containsKey("len"))     j2["len"] = j1["len"];
-  if (j1.containsKey("address")) j2["address"] = j1["address"];
-}
-
-/**************************************************************************
    Support for key-value-protocol of FHEM
 **************************************************************************/
 String GetChipID()
@@ -1539,9 +1515,9 @@ void sendKVPCodeString()
 {
   if (last_recv.valid) sendCodeReceivedString(last_recv, 1);
   if (last_recv_2.valid) sendCodeReceivedString(last_recv_2, 2);
-  if (last_recv_2.valid) sendCodeReceivedString(last_recv_3, 3);
-  if (last_recv_2.valid) sendCodeReceivedString(last_recv_4, 4);
-  if (last_recv_2.valid) sendCodeReceivedString(last_recv_5, 5);
+  if (last_recv_3.valid) sendCodeReceivedString(last_recv_3, 3);
+  if (last_recv_4.valid) sendCodeReceivedString(last_recv_4, 4);
+  if (last_recv_5.valid) sendCodeReceivedString(last_recv_5, 5);
 }
 
 void sendCodeReceivedString(Code& data, int number)
@@ -1618,7 +1594,6 @@ void loop() {
 
   if (irrecv.decode(&results)) {                                  // Grab an IR code
     Serial.println("Signal received:");
-    codeidx = (codeidx + 1) % codehist ; // round buffer 0-4 
     
     copyCode(last_recv_4,last_recv_5);
     copyCode(last_recv_3,last_recv_4);
@@ -1627,65 +1602,16 @@ void loop() {
     cvrtCode(last_recv, &results);
     strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
     last_recv.valid = true;
-
     
     fullCode(&results); 
     dumpCode(&results);                                           // Output the results as source code
-    //Serial.print( "Buffersize before: ");                         //  
-    //Serial.println( jsonBuffer.size());                           // Buffersize jsonbuffer max 15k!
-   
-   /* jsonBuffer.clear();
-    JsonObject& last_code = jsonBuffer.createObject();            // Stores last code
-    JsonObject& last_code_2 = jsonBuffer.createObject();          // Stores 2nd to last code
-    JsonObject& last_code_3 = jsonBuffer.createObject();          // Stores 3rd to last code
-    JsonObject& last_code_4 = jsonBuffer.createObject();          // Stores 4th to last code
-    JsonObject& last_code_5 = jsonBuffer.createObject();          // Stores 5th to last code
-    JsonObject& last_send = jsonBuffer.createObject();            // Stores last sent
-    JsonObject& last_send_2 = jsonBuffer.createObject();          // Stores 2nd last sent
-    JsonObject& last_send_3 = jsonBuffer.createObject();          // Stores 3rd last sent
-    JsonObject& last_send_4 = jsonBuffer.createObject();          // Stores 4th last sent
-    JsonObject& last_send_5 = jsonBuffer.createObject();          // Stores 5th last sent
-    Serial.print( "Buffersize after init: ");                                //  
-    Serial.println( jsonBuffer.size());                           // Buffersize jsonbuffer max 15k!  */
+    
     if (last_recv.valid)  Serial.println( last_recv.raw );
     if (last_recv.valid)  Serial.println( last_recv.timestamp );
-                               // Buffersize jsonbuffer max 15k!
     if (last_recv_2.valid) Serial.println( last_recv_2.raw );                           // Buffersize jsonbuffer max 15k!
     if (last_recv_3.valid) Serial.println( last_recv_3.raw );                           // Buffersize jsonbuffer max 15k!
     if (last_recv_4.valid) Serial.println( last_recv_4.raw );                           // Buffersize jsonbuffer max 15k!
     if (last_recv_5.valid) Serial.println( last_recv_5.raw );                           // Buffersize jsonbuffer max 15k!
-    
-/*    cvrtCode(last_recv_2, &lastcodeArray[((codeidx+4)%codehist)]);                             // rawbuf is a pointer in &results so all is the same todo!!
-    cvrtCode(last_recv_3, &lastcodeArray[((codeidx+3)%codehist)]);                             // rawbuf is a pointer in &results so all is the same todo!!
-    cvrtCode(last_recv_4, &lastcodeArray[((codeidx+2)%codehist)]);                             // rawbuf is a pointer in &results so all is the same todo!!
-    cvrtCode(last_recv_5, &lastcodeArray[((codeidx+1)%codehist)]);                             // rawbuf is a pointer in &results so all is the same todo!!
-    cvrtCode(last_recv, &lastcodeArray[codeidx]);                                              // rawbuf is a pointer in &results so all is the same todo!!
-*/
-
-/*Debug output                                                // Print the singleline value
-    Serial.println ( String("Size results: ") + sizeof(results) + String(" Idx: ") + codeidx); 
-    Serial.print( "Value 5: ");                                   //  
-    fullCode(last_recv_5);             // Print the singleline value from Array
-    Serial.print( "Value 4: ");                                   //  
-    fullCode(last_recv_4);             // Print the singleline value from Array
-    Serial.print( "Value 3: ");                                   //  
-    fullCode(last_recv_3);             // Print the singleline value from Array
-    Serial.print( "Value 2: ");                                   //  
-    fullCode(last_recv_2);             // Print the singleline value from Array
-    Serial.print( "Value 1: ");                                   //  
-    fullCode(last_recv);             // Print the singleline value from Array
-    dumpRaw(last_recv);
-    //debug output 
-*/
-
-    //Serial.print( "Buffersize after fill: ");                                //  
-    //Serial.println( jsonBuffer.size());                           // Buffersize jsonbuffer max 15k!
-    
-    /*copyJson(last_code_4, last_code_5);                           // Pass
-    copyJson(last_code_3, last_code_4);                           // Pass
-    copyJson(last_code_2, last_code_3);                           // Pass
-    copyJson(last_code, last_code_2);                             // Pass*/
-    //codeJson(last_code, &results);                                // Store the results
     irrecv.resume();                                              // Prepare for the next value
     digitalWrite(LED_PIN, LOW);                                    // Turn on the LED for 0.5 seconds
     ticker.attach(0.5, disableLed);
