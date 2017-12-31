@@ -104,7 +104,7 @@ IPAddress ipMulti(239, 0, 0, 57);
 unsigned int portMulti = 12345;      // local port to listen on
 String deviceID = "";
 
-//NTP
+// NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
 const int timeOffset = 3600;                                  // Timezone offset in seconds
 WiFiUDP ntpUDP;
@@ -114,6 +114,53 @@ NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
 
 time_t timedate = 0;
 
+// AJAX
+String javaScript, XML;
+
+void buildJavascript(){
+  javaScript="<SCRIPT>\n";
+  javaScript+="var xmlHttp=createXmlHttpObject();\n";
+
+  javaScript+="function createXmlHttpObject(){\n";
+  javaScript+=" if(window.XMLHttpRequest){\n";
+  javaScript+="    xmlHttp=new XMLHttpRequest();\n";
+  javaScript+=" }else{\n";
+  javaScript+="    xmlHttp=new ActiveXObject('Microsoft.XMLHTTP');\n";
+  javaScript+=" }\n";
+  javaScript+=" return xmlHttp;\n";
+  javaScript+="}\n";
+
+  javaScript+="function process(){\n";
+  javaScript+=" if(xmlHttp.readyState==0 || xmlHttp.readyState==4){\n";
+  javaScript+="   xmlHttp.open('PUT','xml',true);\n";
+  javaScript+="   xmlHttp.onreadystatechange=handleServerResponse;\n"; // no brackets?????
+  javaScript+="   xmlHttp.send(null);\n";
+  javaScript+=" }\n";
+  javaScript+=" setTimeout('process()',1000);\n";
+  javaScript+="}\n";
+  
+  javaScript+="function handleServerResponse(){\n";
+  javaScript+=" if(xmlHttp.readyState==4 && xmlHttp.status==200){\n";
+  javaScript+="   xmlResponse=xmlHttp.responseXML;\n";
+  javaScript+="   xmldoc = xmlResponse.getElementsByTagName('response');\n";
+  javaScript+="   message = xmldoc[0].firstChild.nodeValue;\n";
+  javaScript+="   document.getElementById('runtime').innerHTML=message;\n";
+  javaScript+=" }\n";
+  javaScript+="}\n";
+  javaScript+="</SCRIPT>\n";
+}
+
+void build_XML(){
+  XML="<?xml version='1.0'?>";
+  XML+="<response>";
+  XML+= String(millis()/1000) + "s uptime since " + String(boottime);
+  XML+="</response>";
+}
+
+void handle_XML(){
+  build_XML();
+  server.send(200,"text/xml",XML);
+}
 /**************************************************************************
    Callback notifying us of the need to save config
 **************************************************************************/
@@ -417,6 +464,8 @@ void setup()
     });
     server.on("/config", Handle_config);
 
+    server.on("/xml", handle_XML);
+
     server.on("/upload", Handle_upload);
 
     server.on("/update", HTTP_POST, Handle_update, FlashESP);
@@ -450,6 +499,15 @@ void setup()
   {
     DEBUG_PRINT("Connection received - /config");
     sendConfigPage();  //todo
+  }
+  
+  void Handle_configsave()
+  {
+    DEBUG_PRINT("Connection received - /configsave");
+    server.sendHeader("Connection", "close");
+  //  server.send(200, "text/html", GetUploadHTML());
+
+    //sendConfigPage();  //todo
   }
 
   void Handle_ResetWiFi()
@@ -999,6 +1057,8 @@ void sendHeader()
 }
 void sendHeader(int httpcode)
 {
+  buildJavascript();
+
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(httpcode, "text/html; charset=utf-8", "");
   server.sendContent("<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n");
@@ -1009,6 +1069,8 @@ void sendHeader(int httpcode)
   server.sendContent("    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n");
   server.sendContent("    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n");
   server.sendContent("  </head>\n");
+  server.sendContent(javaScript);
+  server.sendContent("  <BODY onload='process()'>\n");
   server.sendContent("  <body>\n");
   server.sendContent("    <div class='container'>\n");
   server.sendContent("      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n");
@@ -1033,7 +1095,7 @@ void sendHeader(int httpcode)
 **************************************************************************/
 void sendFooter()
 {
-  server.sendContent("      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n");
+  server.sendContent("      <div class='row'><div class='col-md-12'><em id='runtime'></em></div></div>\n");
   server.sendContent("    </div>\n");
   server.sendContent("  </body>\n");
   server.sendContent("</html>\n");
@@ -1100,6 +1162,7 @@ if (SPIFFS.begin())
 
 
   sendHeader(httpcode);
+//      server.sendContent("      <form action='/configsave' method=post>\n");
   if (type == 1)
     server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
   if (type == 2)
@@ -1152,7 +1215,7 @@ if (SPIFFS.begin())
   if (!last_recv.valid && !last_recv_2.valid && !last_recv_3.valid && !last_recv_4.valid && !last_recv_5.valid)*/
 
 
-  server.sendContent(" <tr><td colspan='5' class='text-center'><em><input type='button' value='Save'><input type='button' value='Cancel'><input type='button' value='Reboot'></em></td></tr>");
+  server.sendContent(" <tr><td colspan='5' class='text-center'><em><input type='submit' name='save' value='Save'> <input type='submit' name='cancel' value='Cancel'> <input type='submit' name='reboot' value='Reboot'></em></td></tr>");
   server.sendContent("            </tbody></table>\n");
   server.sendContent("          </div></div>\n");
   sendFooter();
