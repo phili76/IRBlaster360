@@ -1,7 +1,11 @@
 /************************************************************************************/
-/*  IR_Blaster_360                                                                  */
+/*                                                                                  */
+/*     IR_Blaster_360 2.6                                                           */
+/*                                                                                  */
+/*  https://github.com/phili76/IRBlaster360                                         */
+/*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 11.07.2017                                                               */
+/*  Stand: 31.12.2017                                                               */
 /*                                                                                  */
 /*  Bibliotheken:                                                                   */
 /*    ArduinoJson                                                                   */
@@ -42,7 +46,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.6ph";
+const String VERSION       = "v2.6";
 
 /**************************************************************************
    Debug
@@ -424,6 +428,8 @@ void setup()
     server.on("/style", Handle_Style);
 
     server.on("/reset", Handle_ResetWiFi);
+
+    server.on("/reboot", Handle_Reboot);
     
     server.on("/", []() {
       DEBUG_PRINT("Connection received: /");
@@ -450,6 +456,10 @@ void setup()
   {
     DEBUG_PRINT("Connection received - /config");
     sendConfigPage();  //todo
+  }
+
+  void Handle_Reboot(){
+    ESP.restart();
   }
 
   void Handle_ResetWiFi()
@@ -1152,7 +1162,7 @@ if (SPIFFS.begin())
   if (!last_recv.valid && !last_recv_2.valid && !last_recv_3.valid && !last_recv_4.valid && !last_recv_5.valid)*/
 
 
-  server.sendContent(" <tr><td colspan='5' class='text-center'><em><input type='button' value='Save'><input type='button' value='Cancel'><input type='button' value='Reboot'></em></td></tr>");
+  server.sendContent(" <tr><td colspan='5' class='text-center'><em><button type='submit' class='btn btn-sm btn-info'>Save</button>  <a href='/' class='btn btn-sm btn-warning'>Cancel</a>  <a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a></em></td></tr>");
   server.sendContent("            </tbody></table>\n");
   server.sendContent("          </div></div>\n");
   sendFooter();
