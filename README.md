@@ -5,6 +5,12 @@ ESP8266 IR Blaster with FHEM Integration
 
 ## New Features
 
+* rawgraph to visualisize ir data
+
+![rawgraph](/images/rawgraph.png)
+
+## Features
+
 * get current time from ntp
 * uptime display in webserver footer with bootdate
 * set default mDNS hostname if not configured
