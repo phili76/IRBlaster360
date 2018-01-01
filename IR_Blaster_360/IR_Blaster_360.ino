@@ -119,6 +119,9 @@ NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
 time_t timedate = 0;
 
 String javaScript;
+String htmlHeader;
+String htmlFooter;
+
 /**************************************************************************
    Callback notifying us of the need to save config
 **************************************************************************/
@@ -1041,35 +1044,35 @@ void sendHeader(int httpcode)
   server.sendContent("      </div><hr />\n");
 }
 
-void sendHeadertemp(int httpcode)
+void buildHeader()
 {
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.send(httpcode, "text/html; charset=utf-8", "");
-  server.sendContent("<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n");
-  server.sendContent("<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n");
-  server.sendContent("  <head>\n");
-  server.sendContent("    <meta name='viewport' content='width=device-width, initial-scale=.75' />\n");
-  server.sendContent("    <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css' />\n");
-  server.sendContent("    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n");
-  server.sendContent("    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n");
-  server.sendContent("  </head>\n");
-  server.sendContent("  <body onload=showdata()>\n");
-  server.sendContent("    <div class='container'>\n");
-  server.sendContent("      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <ul class='nav nav-pills'>\n");
-  server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='http://" + String(host_name) + ".local" + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ".local" + ":" + String(port) + "</span></a></li>\n");
-  server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n");
-  server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n");
-  server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='/config'>Config</a></li>\n");
-  server.sendContent("          </ul>\n");
-  server.sendContent("        </div>\n");
-  server.sendContent("      </div><hr />\n");
+  
+  htmlHeader="<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
+  htmlHeader+="<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
+  htmlHeader+="  <head>\n";
+  htmlHeader+="    <meta name='viewport' content='width=device-width, initial-scale=.75' />\n";
+  htmlHeader+="    <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css' />\n";
+  htmlHeader+="    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n";
+  htmlHeader+="    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n";
+  htmlHeader+="  </head>\n";
+  htmlHeader+="  <body>\n";
+  htmlHeader+="    <div class='container'>\n";
+  htmlHeader+="      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n";
+  htmlHeader+="      <div class='row'>\n";
+  htmlHeader+="        <div class='col-md-12'>\n";
+  htmlHeader+="          <ul class='nav nav-pills'>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='http://" + String(host_name) + ".local" + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ".local" + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='/config'>Config</a></li>\n";
+  htmlHeader+="          </ul>\n";
+  htmlHeader+="        </div>\n";
+  htmlHeader+="      </div><hr />\n";
+
 }
 
 /**************************************************************************
@@ -1082,6 +1085,17 @@ void sendFooter()
   server.sendContent("  </body>\n");
   server.sendContent("</html>\n");
   server.client().stop();
+}
+
+/**************************************************************************
+   Build HTML footer
+**************************************************************************/
+void buildFooter()
+{
+  htmlFooter="      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n";
+  htmlFooter+="    </div>\n";
+  htmlFooter+="  </body>\n";
+  htmlFooter+="</html>\n";
 }
 
 /**************************************************************************
@@ -1279,68 +1293,76 @@ void sendCodePage(Code& selCode)
 }
 void sendCodePage(Code& selCode, int httpcode)
 {
-  buildJavascript();
-  sendHeadertemp(httpcode);
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Data</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Type</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Length</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Address</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Raw</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Rawgraph</dt>\n");
-  server.sendContent("         <dd><canvas id='myCanvas' width='100' height='100' style='border:1px solid #d3d3d3;>Your browser does not support the canvas element.</canvas></dd></dl>\n");
-  server.sendContent("        </div></div>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n");
-  server.sendContent("            <input id='data' type='text' name='data' hidden value='" + String(selCode.raw) + "'>\n");
-  server.sendContent("      </div></div>\n");
+  String htmlData+=;
+  buildHeader();  // httpcode later was parameter htmlHeader
+  buildJavascript();  //                          javaScript
+  buildFooter();      //                          htmlFooter
+
+  htmlData=htmlHeader;
+
+  htmlData+="      <div class='row'>\n";
+  htmlData+="        <div class='col-md-12'>\n";
+  htmlData+="          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Data</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Type</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Length</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Address</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Raw</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Rawgraph</dt>\n";
+  htmlData+="         <dd><canvas id='myCanvas' width='100' height='100' style='border:1px solid #d3d3d3;>Your browser does not support the canvas element.</canvas></dd></dl>\n";
+  htmlData+="        </div></div>\n";
+  htmlData+="      <div class='row'>\n";
+  htmlData+="        <div class='col-md-12'>\n";
+  htmlData+="          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n";
+  htmlData+="            <input id='data' type='text' name='data' hidden value='" + String(selCode.raw) + "'>\n";
+  htmlData+="      </div></div>\n";
 
   if (String(selCode.encoding) == "UNKNOWN")
   {
-    server.sendContent("      <div class='row'>\n");
-    server.sendContent("        <div class='col-md-12'>\n");
-    server.sendContent("          <ul class='list-unstyled'>\n");
-    server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</a></pre></li>\n");
-    server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</pre></li>\n");
-    server.sendContent("          </ul>\n");
+    htmlData+="      <div class='row'>\n";
+    htmlData+="        <div class='col-md-12'>\n";
+    htmlData+="          <ul class='list-unstyled'>\n";
+    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</pre></li>\n";
+    htmlData+="          </ul>\n";
   }
   else
   {
-    server.sendContent("      <div class='row'>\n");
-    server.sendContent("        <div class='col-md-12'>\n");
-    server.sendContent("          <ul class='list-unstyled'>\n");
-    server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]'> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</a></pre></li>\n");
-    server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</pre></li>\n");
-    server.sendContent("          </ul>\n");
+    htmlData+="      <div class='row'>\n";
+    htmlData+="        <div class='col-md-12'>\n";
+    htmlData+="          <ul class='list-unstyled'>\n";
+    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]'> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</pre></li>\n";
+    htmlData+="          </ul>\n";
   }
 
-  server.sendContent("        </div>\n");
-  server.sendContent("     </div>\n");
-  server.sendContent(javaScript);
-
-  sendFooter();
+  htmlData+="        </div>\n";
+  htmlData+="     </div>\n";
+  htmlData+=javaScript;
+  htmlData+=htmlFooter;
+  
+  //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
+  server.send(httpcode, "text/html; charset=utf-8", htmlData);
+  server.client().stop();
 }
 
 void buildJavascript(){
-  javaScript="<script> function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;";
+  javaScript="<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;";
   javaScript+="var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; ";
   javaScript+="var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "; 
   javaScript+="last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);";
