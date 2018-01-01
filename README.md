@@ -6,6 +6,8 @@ ESP8266 IR Blaster with FHEM Integration
 ## New Features
 
 * rawgraph to visualisize ir data
+* update button on config page
+* rewrite html creation to speed up javascript execution
 
 ![rawgraph](/images/rawgraph.png)
 
