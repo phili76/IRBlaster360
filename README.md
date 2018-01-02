@@ -6,8 +6,9 @@ ESP8266 IR Blaster with FHEM Integration
 ## New Features
 
 * rawgraph to visualisize ir data
-* update button on config page
+* update & reboot button on config page
 * rewrite html creation to speed up javascript execution
+* save config back to configfile
 
 ![rawgraph](/images/rawgraph.png)
 
@@ -18,7 +19,6 @@ ESP8266 IR Blaster with FHEM Integration
 * set default mDNS hostname if not configured
 * timestamp on received and sent codes
 * configure settings in webinterface(see pic)
-* TODO: save config back to configfile
 
 ![config](/images/config.png)
 
