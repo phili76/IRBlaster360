@@ -1,11 +1,11 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7beta                                                           */
+/*     IR_Blaster_360 2.7.1beta                                                     */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 31.12.2017                                                               */
+/*  Stand: 02.01.2017                                                               */
 /*                                                                                  */
 /*  Bibliotheken:                                                                   */
 /*    ArduinoJson                                                                   */
@@ -13,7 +13,7 @@
 /*    IRremoteESP8266                                                               */
 /*    WiFiManager                                                                   */
 /*    NTPClient                                                                     */
-/*    Time                                                                          */
+/*    TimeLib                                                                       */
 /************************************************************************************/
 
 /**************************************************************************
@@ -46,7 +46,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7beta";
+const String VERSION       = "v2.7.1beta";
 
 /**************************************************************************
    Debug
@@ -247,10 +247,9 @@ bool setupWifi(bool resetConf)
   strncpy(passcode, custom_passcode.getValue(), 40);
   strncpy(port_str, custom_port.getValue(), 5);
   port = atoi(port_str);
-
   if (port != 80) {
     DEBUG_PRINT("Default port changed");
-    ESP8266WebServer server(port);
+    // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
   }
 
   Serial.println("WiFi connected! User chose hostname '" + String(host_name) + String("' passcode '") + String(passcode) + "' and port '" + String(port_str) + "'");
@@ -320,7 +319,7 @@ void setup()
       if (timeClient.update()) 
       {
         setTime(timeClient.getEpochTime());
-        String boottimetemp = String(hour()) + ":" + String(minute()) + " " + String(day()) + "." + String(month()) + "." + String(year());
+        String boottimetemp = printDigits(hour()) + ":" + printDigits(minute()) + " " + printDigits(day()) + "." + printDigits(month()) + "." + String(year());
 //        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
         strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
       }
@@ -405,6 +404,12 @@ void setup()
 
       // enable the receiver
       irrecv.enableIRIn();
+    }); 
+    server.on("/freemem", []() {
+      DEBUG_PRINT("Connection received: /freemem");
+      DEBUG_PRINT(ESP.getFreeSketchSpace());
+      server.sendHeader("Connection", "close");
+      server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
     });
 
     server.on("/received", []() {
@@ -472,6 +477,9 @@ void Handle_config()
 
 
 void Handle_Reboot(){
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/html", "<body>Reboot OK, redirect in <b id='count'>3</b></body><script>var counter = 3;setInterval(function() {counter--;if(counter < 1) {window.location = '/';} else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>");
+  delay(500);
   ESP.restart();
 }
 
@@ -886,6 +894,16 @@ String GetStyle()
 }
 
 /**************************************************************************
+   add leading zeros if under 10
+**************************************************************************/
+
+String printDigits(int digits) {
+String s ="";
+(digits < 10) ? s = "0" + String(digits): s = String(digits);
+return s;
+}
+
+/**************************************************************************
    IP Address to String
 **************************************************************************/
 String ipToString(IPAddress ip)
@@ -1135,12 +1153,40 @@ char port_str_conf[5] = "";
 if (type == 1){                                     // save data
   String message = "Number of args received:";
   message += String(server.args()) + "\n";
-    for (int i = 0; i < server.args(); i++) {
-      message += "Arg " + (String)i + " –> ";
-      message += server.argName(i) + ":" ;
-      message += server.arg(i) + "\n";
+  for (int i = 0; i < server.args(); i++) {
+    message += "Arg " + (String)i + " –> ";
+    message += server.argName(i) + ":" ;
+    message += server.arg(i) + "\n";
+  }
+  if (server.hasArg("getTime")) {getTime = true;} else {getTime = false;}
+  strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 40);
+  strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 40);
+  strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
+
+  DEBUG_PRINT(message);
+
+                            // validate values before saving
+  bool validconf = true;
+  if (validconf) 
+  {
+    DEBUG_PRINT("save config.json...");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["hostname"] = String(host_name_conf);
+    json["passcode"] = String(passcode_conf);
+    json["port_str"] = String(port_str_conf);
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      DEBUG_PRINT("failed to open config file for writing");
     }
-    DEBUG_PRINT(message);
+
+    json.printTo(Serial);
+    DEBUG_PRINT("");
+    json.printTo(configFile);
+    configFile.close();
+    //end save
+  }
 
 } else {
   if (SPIFFS.begin()) 
@@ -1166,7 +1212,13 @@ if (type == 1){                                     // save data
 
             if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
             if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
-            if (json.containsKey("port_str")) strncpy(port_str_conf, json["port_str"], 5);
+            if (json.containsKey("port_str")) {
+              strncpy(port_str_conf, json["port_str"], 5);
+            }
+            else {
+              strncpy(port_str_conf, "80", 5);
+
+            }
           } else {
             DEBUG_PRINT("failed to load json config");
           }
@@ -1199,13 +1251,13 @@ if (type == 1){                                     // save data
   htmlDataconf+="          <table class='table table-striped' style='table-layout: fixed;'>\n";
   htmlDataconf+="            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
   htmlDataconf+="            <tbody>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td><input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td><input type='text' id='ntpserver' name='ntpserver' value='" + String(poolServerName) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td><input type='text' id='TIMEOUT' name='TIMEOUT' value='" + String(TIMEOUT) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td><input type='text' id='RAWBUF' name='RAWBUF' value='" + String(RAWBUF) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td></td></tr>\n"; //<input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'>
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
   htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
   htmlDataconf+="            </tbody></table>\n";
   htmlDataconf+="          </div></div>\n";
