@@ -62,7 +62,7 @@ const String VERSION       = "v2.7beta";
 **************************************************************************/
 char passcode[40] = "";
 char host_name[40] = "";
-char port_str[20] = "80";
+char port_str[5] = "80";
 
 class Code 
 {
@@ -99,7 +99,9 @@ ESP8266WebServer server(port);
 bool shouldSaveConfig = false;                                // Flag for saving data
 
 // ir
-IRrecv irrecv(IR_RECEIVE_PIN);
+#define TIMEOUT 15U    // capture long ir telegrams, e.g. AC
+#define RAWBUF 100U    // larger buffer
+IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
 
 // multicast
@@ -208,7 +210,7 @@ bool setupWifi(bool resetConf)
           if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 40);
           if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
           if (json.containsKey("port_str")) {
-            strncpy(port_str, json["port_str"], 20);
+            strncpy(port_str, json["port_str"], 5);
             port = atoi(json["port_str"]);
           }
         } else {
@@ -226,7 +228,7 @@ bool setupWifi(bool resetConf)
   wifiManager.addParameter(&custom_hostname);
   WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 40);
   wifiManager.addParameter(&custom_passcode);
-  WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 40);
+  WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 5);
   wifiManager.addParameter(&custom_port);
 
   // fetches ssid and pass and tries to connect
@@ -243,7 +245,7 @@ bool setupWifi(bool resetConf)
   // if you get here you have connected to the WiFi
   strncpy(host_name, custom_hostname.getValue(), 40);
   strncpy(passcode, custom_passcode.getValue(), 40);
-  strncpy(port_str, custom_port.getValue(), 20);
+  strncpy(port_str, custom_port.getValue(), 5);
   port = atoi(port_str);
 
   if (port != 80) {
@@ -324,7 +326,7 @@ void setup()
       }
       else
       { 
-        getTime = false;                                                             // deactivate if error occours
+        getTime = false;                                                             // deactivate NTP if error occours
       }  
     }  
 
@@ -458,9 +460,15 @@ void setup()
   }
   void Handle_config()
   {
-    DEBUG_PRINT("Connection received - /config");
-    sendConfigPage();  //todo
+    if (server.method() == HTTP_GET){
+      DEBUG_PRINT("Connection received - /config");
+      sendConfigPage();
+    } else {
+      DEBUG_PRINT("Connection received - /config (save)");
+      sendConfigPage("Settings saved successfully!", "Success!", 1);
+      }
   }
+  
 
   void Handle_Reboot(){
     ESP.restart();
@@ -1024,7 +1032,6 @@ void sendHeader(int httpcode)
   server.sendContent("    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n");
   server.sendContent("    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n");
   server.sendContent("  </head>\n");
-  server.sendContent(javaScript);
   server.sendContent("  <body>\n");
   server.sendContent("    <div class='container'>\n");
   server.sendContent("      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n");
@@ -1042,6 +1049,8 @@ void sendHeader(int httpcode)
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
+
+
 }
 
 void buildHeader()
@@ -1100,6 +1109,8 @@ void buildFooter()
 
 /**************************************************************************
    Send HTML Config page
+   type 1 save config
+
 **************************************************************************/
 void sendConfigPage()
 {
@@ -1117,68 +1128,94 @@ void sendConfigPage(String message, String header, int type, int httpcode)
 {
 char passcode_conf[40] = "";
 char host_name_conf[40] = "";
-char port_str_conf[20] = "";
+char port_str_conf[5] = "";
 
-if (SPIFFS.begin()) 
-  {
-    DEBUG_PRINT("mounted file system");
-    if (SPIFFS.exists("/config.json")) 
+if (type == 1){                                     // save data
+  String message = "Number of args received:";
+  message += String(server.args()) + "\n";
+    for (int i = 0; i < server.args(); i++) {
+      message += "Arg " + (String)i + " –> ";
+      message += server.argName(i) + ":" ;
+      message += server.arg(i) + "\n";
+    }
+    DEBUG_PRINT(message);
+
+
+  } else {
+  if (SPIFFS.begin()) 
     {
-      //file exists, reading and loading
-      DEBUG_PRINT("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        DEBUG_PRINT("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+      DEBUG_PRINT("mounted file system");
+      if (SPIFFS.exists("/config.json")) 
+      {
+        //file exists, reading and loading
+        DEBUG_PRINT("reading config file");
+        File configFile = SPIFFS.open("/config.json", "r");
+        if (configFile) {
+          DEBUG_PRINT("opened config file");
+          size_t size = configFile.size();
+          // Allocate a buffer to store contents of the file.
+          std::unique_ptr<char[]> buf(new char[size]);
 
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject(buf.get());
-        json.printTo(Serial);
-        if (json.success()) {
-          DEBUG_PRINT("\nparsed json");
+          configFile.readBytes(buf.get(), size);
+          DynamicJsonBuffer jsonBuffer;
+          JsonObject& json = jsonBuffer.parseObject(buf.get());
+          json.printTo(Serial);
+          if (json.success()) {
+            DEBUG_PRINT("\nparsed json");
 
-          if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
-          if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
-          if (json.containsKey("port_str")) {
-            strncpy(port_str_conf, json["port_str"], 20);
+            if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
+            if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
+            if (json.containsKey("port_str")) {strncpy(port_str_conf, json["port_str"], 5);
+            }
+          } else {
+            DEBUG_PRINT("failed to load json config");
           }
-        } else {
-          DEBUG_PRINT("failed to load json config");
         }
       }
+    } 
+    else 
+    {
+      DEBUG_PRINT("failed to mount FS");
     }
-  } 
-  else 
-  {
-    DEBUG_PRINT("failed to mount FS");
   }
 
 
-  sendHeader(httpcode);
+  String htmlDataconf;
+  buildHeader();  // httpcode later was parameter htmlHeader
+  buildJavascript();  //                          javaScript
+  buildFooter();      //                          htmlFooter
+
+  htmlDataconf=htmlHeader;
+
+  //sendHeader(httpcode);
   if (type == 1)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 2)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 3)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <h3>Config</h3>\n");
-  server.sendContent("          <table class='table table-striped' style='table-layout: fixed;'>\n");
-  server.sendContent("            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"); //Title
-  server.sendContent("            <tbody>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + String(getTime) + "</code></td><td><input type='checkbox' id='ntpok' name='getTime' value='" + String(getTime) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td><input type='text' id='ntpserver' name='ntpserver' value='" + String(poolServerName) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' value='" + String(port_str_conf) + "'></td></tr>\n");
-  server.sendContent(" <tr><td colspan='5' class='text-center'><em><a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>");
-  server.sendContent("            </tbody></table>\n");
-  server.sendContent("          </div></div>\n");
-  sendFooter();
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
+  htmlDataconf+="      <div class='row'>\n";
+  htmlDataconf+="<form method='post' action='/config'>";
+  htmlDataconf+="        <div class='col-md-12'>\n";
+  htmlDataconf+="          <h3>Config</h3>\n";
+  htmlDataconf+="          <table class='table table-striped' style='table-layout: fixed;'>\n";
+  htmlDataconf+="            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
+  htmlDataconf+="            <tbody>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td><input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td><input type='text' id='ntpserver' name='ntpserver' value='" + String(poolServerName) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td><input type='text' id='TIMEOUT' name='TIMEOUT' value='" + String(TIMEOUT) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td><input type='text' id='RAWBUF' name='RAWBUF' value='" + String(RAWBUF) + "'></td></tr>\n";
+  htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
+  htmlDataconf+="            </tbody></table>\n";
+  htmlDataconf+="          </div></div>\n";
+  htmlDataconf+=htmlFooter;
+
+  server.send(httpcode, "text/html; charset=utf-8", htmlDataconf);
+  server.client().stop();
+
 }
 
 
@@ -1250,7 +1287,7 @@ void sendHomePage(String message, String header, int type, int httpcode)
 }
 
 /**************************************************************************
-   Send HTML code page
+   Send HTML code page 
 **************************************************************************/
 void sendCodePage(Code& selCode)
 {
