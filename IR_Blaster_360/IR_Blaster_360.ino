@@ -250,7 +250,7 @@ bool setupWifi(bool resetConf)
 
   if (port != 80) {
     DEBUG_PRINT("Default port changed");
-    server = ESP8266WebServer(port);
+    ESP8266WebServer server(port);
   }
 
   Serial.println("WiFi connected! User chose hostname '" + String(host_name) + String("' passcode '") + String(passcode) + "' and port '" + String(port_str) + "'");
@@ -457,38 +457,40 @@ void setup()
     irrecv.enableIRIn();
     DEBUG_PRINT("Ready to send and receive IR signals");
     
-  }
-  void Handle_config()
-  {
-    if (server.method() == HTTP_GET){
-      DEBUG_PRINT("Connection received - /config");
-      sendConfigPage();
-    } else {
-      DEBUG_PRINT("Connection received - /config (save)");
-      sendConfigPage("Settings saved successfully!", "Success!", 1);
-      }
-  }
-  
-
-  void Handle_Reboot(){
-    ESP.restart();
-  }
-
-  void Handle_ResetWiFi()
-  {
-    DEBUG_PRINT("Reset WiFi settings and reboot gateway");
-    // define WiFiManager instance
-    WiFiManager wifiManager;
-
-    // perform reset of WiFi setting
-    wifiManager.resetSettings();
-
-    // restart ESP
-    ESP.restart();
-
-    // wait some time
-    delay(1000);
 }
+
+void Handle_config()
+{
+  if (server.method() == HTTP_GET){
+    DEBUG_PRINT("Connection received - /config");
+    sendConfigPage();
+  } else {
+    DEBUG_PRINT("Connection received - /config (save)");
+    sendConfigPage("Settings saved successfully!", "Success!", 1);
+    }
+}
+
+
+void Handle_Reboot(){
+  ESP.restart();
+}
+
+void Handle_ResetWiFi()
+{
+  DEBUG_PRINT("Reset WiFi settings and reboot gateway");
+  // define WiFiManager instance
+  WiFiManager wifiManager;
+
+  // perform reset of WiFi setting
+  wifiManager.resetSettings();
+
+  // restart ESP
+  ESP.restart();
+
+  // wait some time
+  delay(1000);
+}
+
 /**************************************************************************
    Over the air update
 **************************************************************************/
@@ -1140,8 +1142,7 @@ if (type == 1){                                     // save data
     }
     DEBUG_PRINT(message);
 
-
-  } else {
+} else {
   if (SPIFFS.begin()) 
     {
       DEBUG_PRINT("mounted file system");
@@ -1165,16 +1166,13 @@ if (type == 1){                                     // save data
 
             if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
             if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
-            if (json.containsKey("port_str")) {strncpy(port_str_conf, json["port_str"], 5);
-            }
+            if (json.containsKey("port_str")) strncpy(port_str_conf, json["port_str"], 5);
           } else {
             DEBUG_PRINT("failed to load json config");
           }
         }
       }
-    } 
-    else 
-    {
+    } else {
       DEBUG_PRINT("failed to mount FS");
     }
   }
