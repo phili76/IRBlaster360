@@ -211,8 +211,10 @@ bool setupWifi(bool resetConf)
           if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
           if (json.containsKey("port_str")) {
             strncpy(port_str, json["port_str"], 5);
-            port = atoi(json["port_str"]);
           }
+          if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
+          port = atoi(port_str);
+
         } else {
           DEBUG_PRINT("failed to load json config");
         }
@@ -246,6 +248,7 @@ bool setupWifi(bool resetConf)
   strncpy(host_name, custom_hostname.getValue(), 40);
   strncpy(passcode, custom_passcode.getValue(), 40);
   strncpy(port_str, custom_port.getValue(), 5);
+  if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
   port = atoi(port_str);
   if (port != 80) {
     DEBUG_PRINT("Default port changed");
@@ -1215,10 +1218,7 @@ if (type == 1){                                     // save data
             if (json.containsKey("port_str")) {
               strncpy(port_str_conf, json["port_str"], 5);
             }
-            else {
-              strncpy(port_str_conf, "80", 5);
-
-            }
+            if (port_str_conf[0] == 0) strncpy(port_str_conf, "80", 5) ;    //set default hostname when not set!
           } else {
             DEBUG_PRINT("failed to load json config");
           }
