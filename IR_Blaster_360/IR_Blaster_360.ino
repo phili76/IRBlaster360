@@ -1,18 +1,17 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.1beta                                                     */
+/*     IR_Blaster_360 2.7.2beta                                                     */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 02.01.2017                                                               */
+/*  Stand: 03.01.2017                                                               */
 /*                                                                                  */
 /*  Bibliotheken:                                                                   */
 /*    ArduinoJson                                                                   */
 /*    NTPClient                                                                     */
 /*    IRremoteESP8266                                                               */
 /*    WiFiManager                                                                   */
-/*    NTPClient                                                                     */
 /*    TimeLib                                                                       */
 /************************************************************************************/
 
@@ -32,7 +31,6 @@
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
 #include <Dns.h>
-#include <NTPClient.h>
 #include <TimeLib.h>
 
 
@@ -46,7 +44,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.1beta";
+const String VERSION       = "v2.7.2beta";
 
 /**************************************************************************
    Debug
@@ -60,9 +58,11 @@ const String VERSION       = "v2.7.1beta";
 /**************************************************************************
    Variables
 **************************************************************************/
+// config.json 
 char passcode[40] = "";
 char host_name[40] = "";
 char port_str[5] = "80";
+char ntpserver[40] = "";  
 
 class Code 
 {
@@ -112,17 +112,81 @@ String deviceID = "";
 
 //NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
-const int timeOffset = 3600;                                  // Timezone offset in seconds
-WiFiUDP ntpUDP;
-const char* poolServerName = "europe.pool.ntp.org";
-char boottime[40] = "";                                       // 
-NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
+char* poolServerName = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
+char boottime[40] = ""; 
 
-time_t timedate = 0;
+const int timeZone = 1;     // Central European Time
+WiFiUDP Udp;
+unsigned int localPort = 8888;  // local port to listen for UDP packets
 
+time_t getNtpTime();
+void sendNTPpacket(IPAddress &address);
+
+
+// Webserver
 String javaScript;
 String htmlHeader;
 String htmlFooter;
+
+
+/*-------- NTP code ----------*/
+
+const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+
+time_t getNtpTime()
+{
+  IPAddress ntpServerIP; // NTP server's ip address
+
+  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println("NTP: Transmit NTP Request");
+  // get a random server from the pool
+  WiFi.hostByName(ntpserver, ntpServerIP);
+  Serial.print(ntpserver);
+  Serial.print(": ");
+  Serial.println(ntpServerIP);
+  sendNTPpacket(ntpServerIP);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = Udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println("NTP: Receive NTP Response");
+      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+    }
+  }
+  Serial.println("NTP: No NTP Response :-(");
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
 
 /**************************************************************************
    Callback notifying us of the need to save config
@@ -186,11 +250,9 @@ bool setupWifi(bool resetConf)
   // set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
-  if (SPIFFS.begin()) 
-  {
+  if (SPIFFS.begin()) {
     DEBUG_PRINT("mounted file system");
-    if (SPIFFS.exists("/config.json")) 
-    {
+    if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
       DEBUG_PRINT("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
@@ -212,17 +274,15 @@ bool setupWifi(bool resetConf)
           if (json.containsKey("port_str")) {
             strncpy(port_str, json["port_str"], 5);
           }
-          if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
+          if (port_str[0] == 0) strncpy(port_str, "80", 5);    //set default hostname when not set!
           port = atoi(port_str);
-
+          if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 40);
         } else {
           DEBUG_PRINT("failed to load json config");
         }
       }
-    }
-  } 
-  else 
-  {
+    } 
+  } else {
     DEBUG_PRINT("failed to mount FS");
   }
   
@@ -232,6 +292,8 @@ bool setupWifi(bool resetConf)
   wifiManager.addParameter(&custom_passcode);
   WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 5);
   wifiManager.addParameter(&custom_port);
+  WiFiManagerParameter custom_ntpserver("ntpserver", "Choose a ntpserver", ntpserver, 40);
+  wifiManager.addParameter(&custom_ntpserver);
 
   // fetches ssid and pass and tries to connect
   // if it does not connect it starts an access point with the specified name
@@ -266,6 +328,7 @@ bool setupWifi(bool resetConf)
     json["hostname"] = host_name;
     json["passcode"] = passcode;
     json["port_str"] = port_str;
+    json["ntpserver"] = ntpserver;
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
@@ -298,6 +361,7 @@ void setup()
   if (!setupWifi(digitalRead(CONFIG_PIN) == LOW))
     return;
   if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 40);    //set default hostname when not set!
+  if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 40);    //set default ntp server when not set!
     WiFi.hostname(host_name);
     while (WiFi.status() != WL_CONNECTED) 
     {
@@ -315,21 +379,22 @@ void setup()
     MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
     
     DEBUG_PRINT("URL to send commands: http://" + String(host_name) + ".local:" + port_str);
-
+  
+  
     if (getTime) 
-    {
-      timeClient.begin();                                                               // Get the time
-      if (timeClient.update()) 
-      {
-        setTime(timeClient.getEpochTime());
-        String boottimetemp = printDigits(hour()) + ":" + printDigits(minute()) + " " + printDigits(day()) + "." + printDigits(month()) + "." + String(year());
-//        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
-        strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
-      }
-      else
-      { 
-        getTime = false;                                                             // deactivate NTP if error occours
-      }  
+    {  
+      Serial.println("NTP: Starting UDP");
+      Udp.begin(localPort);
+      Serial.print("NTP: Local port: ");
+      Serial.println(Udp.localPort());
+      Serial.println("NTP: waiting for sync");
+      setSyncProvider(getNtpTime);
+      setSyncInterval(300);
+      String boottimetemp = printDigits(hour()) + ":" + printDigits(minute()) + " " + printDigits(day()) + "." + printDigits(month()) + "." + String(year());
+      strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
+    } 
+    else {                  // if NTP is disabled set Dummydate
+      setTime(1514764800);  // 1.1.2018 00:00 
     }  
 
     // Configure the server
@@ -937,7 +1002,9 @@ int rokuCommand(String ip, String data)
   last_send.bits = 1;
   strncpy(last_send.encoding, "roku", 20);
   strncpy(last_send.address, ip.c_str(), 40);
-  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+
+//  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
   last_send.valid = true;
 
   return http.POST("");
@@ -1152,6 +1219,15 @@ void sendConfigPage(String message, String header, int type, int httpcode)
 char passcode_conf[40] = "";
 char host_name_conf[40] = "";
 char port_str_conf[5] = "";
+char ntpserver_conf[40] = "";
+
+//
+// todo
+//
+// config timezone
+// config DST (Sommer-Winter)
+// NTP enabled?
+//
 
 if (type == 1){                                     // save data
   String message = "Number of args received:";
@@ -1165,6 +1241,7 @@ if (type == 1){                                     // save data
   strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 40);
   strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 40);
   strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
+  strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 40);
 
   DEBUG_PRINT(message);
 
@@ -1178,6 +1255,7 @@ if (type == 1){                                     // save data
     json["hostname"] = String(host_name_conf);
     json["passcode"] = String(passcode_conf);
     json["port_str"] = String(port_str_conf);
+    json["ntpserver"] = String(ntpserver_conf);
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
@@ -1218,7 +1296,9 @@ if (type == 1){                                     // save data
             if (json.containsKey("port_str")) {
               strncpy(port_str_conf, json["port_str"], 5);
             }
-            if (port_str_conf[0] == 0) strncpy(port_str_conf, "80", 5) ;    //set default hostname when not set!
+            if (port_str_conf[0] == 0) strncpy(port_str_conf, "80", 5) ;    //set default port when not set!
+            if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 40);
+
           } else {
             DEBUG_PRINT("failed to load json config");
           }
@@ -1251,10 +1331,10 @@ if (type == 1){                                     // save data
   htmlDataconf+="          <table class='table table-striped' style='table-layout: fixed;'>\n";
   htmlDataconf+="            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
   htmlDataconf+="            <tbody>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + ((host_name_conf[0] == 0 ) ? String("(" + String(host_name) + ")") : String(host_name_conf)) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td></td></tr>\n"; //<input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'>
-  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + ((ntpserver_conf[0] == 0 ) ? String("(" + String(poolServerName) + ")") : String(ntpserver_conf)) + "</code></td><td><input type='text' id='ntpserver_conf' name='ntpserver_conf' value='" + String(ntpserver_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
   htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
@@ -1690,7 +1770,8 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
   last_send.bits = len;
   strncpy(last_send.encoding, type.c_str(), 20);
   strncpy(last_send.address, ("0x" + String(address, HEX)).c_str(), 20);
-  strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  // strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
   last_send.valid = true;
 
 
@@ -1740,7 +1821,8 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   last_send.bits = raw.size();
   strncpy(last_send.encoding, "RAW", 20);
   strncpy(last_send.address, "0x0", 40);
-  strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
   last_send.valid = true;
 
 }
@@ -1861,7 +1943,8 @@ void sendMultiCast(String msg) {
 void loop() {
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
-  timeClient.update();                // update only after 
+ 
+ // timeClient.update();                // update only after 
 
 
 
@@ -1873,7 +1956,8 @@ void loop() {
     copyCode(last_recv_2,last_recv_3);
     copyCode(last_recv,last_recv_2);
     cvrtCode(last_recv, &results);
-    strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
+    // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
+  strncpy(last_recv.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + (millis() % 1000)).c_str(), 40);
     last_recv.valid = true;
     
     fullCode(&results); 
