@@ -9,6 +9,8 @@ ESP8266 IR Blaster with FHEM Integration
 * update & reboot button on config page
 * rewrite html creation to speed up javascript execution
 * save config back to configfile
+* config page shows defaults if not set
+* NTP Server configurable
 
 ![rawgraph](/images/rawgraph.png)
 
@@ -20,6 +22,6 @@ ESP8266 IR Blaster with FHEM Integration
 * timestamp on received and sent codes
 * configure settings in webinterface(see pic)
 
-![config](/images/config.png)
+![config](/images/config2.png)
 
 
