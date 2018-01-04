@@ -1,6 +1,6 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.2beta                                                     */
+/*     IR_Blaster_360 2.7.3beta                                                     */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
@@ -44,7 +44,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.2beta";
+const String VERSION       = "v2.7.3beta";
 
 /**************************************************************************
    Debug
@@ -54,6 +54,7 @@ const String VERSION       = "v2.7.2beta";
 #define DEBUG_PRINTLN(x)  Serial.println (x)
 #else
 #define DEBUG_PRINT(x)
+#define DEBUG_PRINTLN(x)
 #endif
 
 /**************************************************************************
@@ -195,7 +196,7 @@ void sendNTPpacket(IPAddress &address)
 **************************************************************************/
 void saveConfigCallback ()
 {
-  DEBUG_PRINTLN("Should save config");
+  DEBUG_PRINTLN(F("Should save config"));
   shouldSaveConfig = true;
 }
 
@@ -213,7 +214,7 @@ void tick()
 **************************************************************************/
 void disableLed()
 {
-  DEBUG_PRINTLN("SYS: Turning off the LED to save power.");
+  DEBUG_PRINTLN(F("SYS: Turning off the LED to save power."));
   digitalWrite(LED_PIN, HIGH);                          // Shut down the LED
   ticker.detach();                                      // Stopping the ticker
 }
@@ -223,7 +224,7 @@ void disableLed()
 **************************************************************************/
 void configModeCallback (WiFiManager *myWiFiManager)
 {
-  DEBUG_PRINTLN("Entered config mode");
+  DEBUG_PRINTLN(F("Entered config mode"));
   Serial.println(WiFi.softAPIP());
   //if you used auto generated SSID, print it
   DEBUG_PRINTLN(myWiFiManager->getConfigPortalSSID());
@@ -253,13 +254,13 @@ bool setupWifi(bool resetConf)
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   if (SPIFFS.begin()) {
-    DEBUG_PRINTLN("mounted file system");
+    DEBUG_PRINTLN(F("mounted file system"));
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
       ;("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
-        DEBUG_PRINTLN("opened config file");
+        DEBUG_PRINTLN(F("opened config file"));
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
         std::unique_ptr<char[]> buf(new char[size]);
@@ -269,7 +270,7 @@ bool setupWifi(bool resetConf)
         JsonObject& json = jsonBuffer.parseObject(buf.get());
         json.printTo(Serial);
         if (json.success()) {
-          DEBUG_PRINTLN("\nparsed json");
+          DEBUG_PRINTLN(F("\nparsed json"));
 
           if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 40);
           if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
@@ -280,12 +281,12 @@ bool setupWifi(bool resetConf)
           port = atoi(port_str);
           if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 40);
         } else {
-          DEBUG_PRINTLN("failed to load json config");
+          DEBUG_PRINTLN(F("failed to load json config"));
         }
       }
     } 
   } else {
-    DEBUG_PRINTLN("failed to mount FS");
+    DEBUG_PRINTLN(F("failed to mount FS"));
   }
   
   WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 40);
@@ -302,7 +303,7 @@ bool setupWifi(bool resetConf)
   // and goes into a blocking loop awaiting configuration
   if (!wifiManager.autoConnect(wifi_config_name)) 
   {
-    DEBUG_PRINTLN("failed to connect and hit timeout");
+    DEBUG_PRINTLN(F("failed to connect and hit timeout"));
     // reset and try again, or maybe put it to deep sleep
     ESP.reset();
     delay(1000);
@@ -315,7 +316,7 @@ bool setupWifi(bool resetConf)
   if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
   port = atoi(port_str);
   if (port != 80) {
-    DEBUG_PRINTLN("Default port changed");
+    DEBUG_PRINTLN(F("Default port changed"));
     // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
   }
 
@@ -324,7 +325,7 @@ bool setupWifi(bool resetConf)
   // save the custom parameters to FS
   if (shouldSaveConfig) 
   {
-    DEBUG_PRINTLN(" config...");
+    DEBUG_PRINTLN(F(" config..."));
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = host_name;
@@ -334,7 +335,7 @@ bool setupWifi(bool resetConf)
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINTLN("SPI: failed to open config file for writing");
+      DEBUG_PRINTLN(F("SPI: failed to open config file for writing"));
     }
 
     json.printTo(Serial);
@@ -358,7 +359,7 @@ void setup()
   // Initialize serial
   Serial.begin(115200);
   DEBUG_PRINTLN("");
-  DEBUG_PRINTLN("ESP8266 IR Controller");
+  DEBUG_PRINTLN(F("ESP8266 IR Controller"));
   pinMode(CONFIG_PIN, INPUT_PULLUP);
   if (!setupWifi(digitalRead(CONFIG_PIN) == LOW))
     return;
@@ -392,7 +393,7 @@ void setup()
       Serial.println("NTP: waiting for sync");
       setSyncProvider(getNtpTime);
       setSyncInterval(300);
-      String boottimetemp = printDigits(hour()) + ":" + printDigits(minute()) + " " + printDigits(day()) + "." + printDigits(month()) + "." + String(year());
+      String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
       strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
     } 
     else {                  // if NTP is disabled set Dummydate
@@ -403,7 +404,7 @@ void setup()
     // JSON handler for more complicated IR blaster routines
     server.on("/json", []()
     {
-      DEBUG_PRINTLN("WEB: Connection received - JSON");
+      DEBUG_PRINTLN(F("WEB: Connection received - JSON"));
 
       // disable the receiver
       irrecv.disableIRIn();
@@ -413,14 +414,14 @@ void setup()
 
       if (!root.success())
       {
-        DEBUG_PRINTLN("JSO: JSON parsing failed");
+        DEBUG_PRINTLN(F("JSO: JSON parsing failed"));
 
         // http response
         server.send(400, "text/html", "JSON parsing failed");
       }
       else if (server.arg("pass") != passcode)
       {
-        DEBUG_PRINTLN("WEB: Unauthorized access");
+        DEBUG_PRINTLN(F("WEB: Unauthorized access"));
 
         // http response
         server.send(401, "text/html", "Invalid passcode");
@@ -466,7 +467,7 @@ void setup()
 
           if (x + 1 < root.size())
           {
-            DEBUG_PRINTLN("IR : wait between two commands");
+            DEBUG_PRINTLN(F("IR : wait between two commands"));
             delay(cdelay);
           }
         }
@@ -476,14 +477,14 @@ void setup()
       irrecv.enableIRIn();
     }); 
     server.on("/freemem", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
+      DEBUG_PRINTLN(F("WEB: Connection received: /freemem : "));
       DEBUG_PRINT(ESP.getFreeSketchSpace());
       server.sendHeader("Connection", "close");
       server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
     });
 
     server.on("/received", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /received");
+      DEBUG_PRINTLN(F("WEB: Connection received: /received"));
       int id = server.arg("id").toInt();
       String output;
       if (id == 1 && last_recv.valid) {
@@ -513,7 +514,7 @@ void setup()
     server.on("/reboot", Handle_Reboot);
     
     server.on("/", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /");
+      DEBUG_PRINTLN(F("WEB: Connection received: /"));
       sendHomePage(); // 200
     });
 
@@ -530,17 +531,17 @@ void setup()
     // initialize the IR interface
     irsend.begin();
     irrecv.enableIRIn();
-    DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
+    DEBUG_PRINTLN(F("SYS: Ready to send and receive IR signals"));
     
 }
 
 void Handle_config()
 {
   if (server.method() == HTTP_GET){
-    DEBUG_PRINTLN("WEB: Connection received - /config");
+    DEBUG_PRINTLN(F("WEB: Connection received - /config"));
     sendConfigPage();
   } else {
-    DEBUG_PRINTLN("WEB: Connection received - /config (save)");
+    DEBUG_PRINTLN(F("WEB: Connection received - /config (save)"));
     sendConfigPage("Settings saved successfully!", "Success!", 1);
     }
 }
@@ -555,7 +556,7 @@ void Handle_Reboot(){
 
 void Handle_ResetWiFi()
 {
-  DEBUG_PRINTLN("SYS: Reset WiFi settings and reboot gateway");
+  DEBUG_PRINTLN(F("SYS: Reset WiFi settings and reboot gateway"));
   // define WiFiManager instance
   WiFiManager wifiManager;
 
@@ -627,7 +628,7 @@ void Handle_upload()
 
 void Handle_update()
 {
-  DEBUG_PRINTLN("handle_update call");
+  DEBUG_PRINTLN(F("handle_update call"));
   server.sendHeader("Connection", "close");
   server.sendHeader("Access-Control-Allow-Origin", "*");
   bool error = Update.hasError();
@@ -635,7 +636,7 @@ void Handle_update()
 
   if (!error)
   {
-    DEBUG_PRINTLN("reboot call");
+    DEBUG_PRINTLN(F("reboot call"));
     delay(500);  // problem with ajax response before reboot
     ESP.restart();
   }
@@ -974,9 +975,18 @@ String GetStyle()
    add leading zeros if under 10
 **************************************************************************/
 
-String printDigits(int digits) { // 2 digits
+String printDigits2(int digits) { // 2 digits
   String s="";
   (digits < 10) ? s = "0" + String(digits): s = String(digits);
+  return s;
+}
+/**************************************************************************
+   add leading zeros if under 10
+**************************************************************************/
+
+String printDigits3(long digits) { // 3 digits
+  String s="";
+  (digits < 10) ? s = "00" + String(digits): ((digits < 100) ? s = "0" + String(digits): s = String(digits));
   return s;
 }
 
@@ -1000,9 +1010,9 @@ int rokuCommand(String ip, String data)
   HTTPClient http;
   String url = "http://" + ip + ":8060/" + data;
   http.begin(url);
-  DEBUG_PRINT("IR : ");
+  DEBUG_PRINT(F("IR : "));
   DEBUG_PRINTLN(url);
-  DEBUG_PRINTLN("IR : Sending roku command");
+  DEBUG_PRINTLN(F("IR : Sending roku command"));
 
   copyCode(last_send_4, last_send_5);
   copyCode(last_send_3, last_send_4);
@@ -1015,7 +1025,7 @@ int rokuCommand(String ip, String data)
   strncpy(last_send.address, ip.c_str(), 40);
 
 //  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_recv.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3((millis() % 1000))).c_str(), 40);
   last_send.valid = true;
 
   return http.POST("");
@@ -1122,7 +1132,6 @@ void sendHeader()
 }
 void sendHeader(int httpcode)
 {
-  buildJavascript();
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(httpcode, "text/html; charset=utf-8", "");
   server.sendContent("<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n");
@@ -1260,7 +1269,7 @@ if (type == 1){                                     // save data
   bool validconf = true;
   if (validconf) 
   {
-    DEBUG_PRINTLN("SPI: save config.json...");
+    DEBUG_PRINTLN(F("SPI: save config.json..."));
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = String(host_name_conf);
@@ -1270,7 +1279,7 @@ if (type == 1){                                     // save data
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINTLN("SPI: failed to open config file for writing");
+      DEBUG_PRINTLN(F("SPI: failed to open config file for writing"));
     }
 
     json.printTo(Serial);
@@ -1283,14 +1292,14 @@ if (type == 1){                                     // save data
 } else {
   if (SPIFFS.begin()) 
     {
-      DEBUG_PRINTLN("SPI: mounted file system");
+      DEBUG_PRINTLN(F("SPI: mounted file system"));
       if (SPIFFS.exists("/config.json")) 
       {
         //file exists, reading and loading
-        DEBUG_PRINTLN("SPI: reading config file");
+        DEBUG_PRINTLN(F("SPI: reading config file"));
         File configFile = SPIFFS.open("/config.json", "r");
         if (configFile) {
-          DEBUG_PRINTLN("SPI: opened config file");
+          DEBUG_PRINTLN(F("SPI: opened config file"));
           size_t size = configFile.size();
           // Allocate a buffer to store contents of the file.
           std::unique_ptr<char[]> buf(new char[size]);
@@ -1301,7 +1310,7 @@ if (type == 1){                                     // save data
           Serial.print("JSO: ");
           json.printTo(Serial);
           if (json.success()) {
-            DEBUG_PRINTLN("\nJSO: parsed json");
+            DEBUG_PRINTLN(F("\nJSO: parsed json"));
 
             if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
             if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
@@ -1312,19 +1321,19 @@ if (type == 1){                                     // save data
             if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 40);
 
           } else {
-            DEBUG_PRINTLN("JSO: failed to load json config");
+            DEBUG_PRINTLN(F("JSO: failed to load json config"));
           }
         }
       }
     } else {
-      DEBUG_PRINTLN("SPI: failed to mount FS");
+      DEBUG_PRINTLN(F("SPI: failed to mount FS"));
     }
   }
 
 
   String htmlDataconf;
   buildHeader();  // httpcode later was parameter htmlHeader
-  buildJavascript();  //                          javaScript
+  //buildJavascript();  //                          javaScript
   buildFooter();      //                          htmlFooter
 
   htmlDataconf=htmlHeader;
@@ -1439,7 +1448,7 @@ void sendCodePage(Code& selCode, int httpcode)
 {
   String htmlData;
   buildHeader();  // httpcode later was parameter htmlHeader
-  buildJavascript();  //                          javaScript
+  //buildJavascript();  //                          javaScript
   buildFooter();      //                          htmlFooter
 
   htmlData=htmlHeader;
@@ -1497,7 +1506,7 @@ void sendCodePage(Code& selCode, int httpcode)
 
   htmlData+="        </div>\n";
   htmlData+="     </div>\n";
-  htmlData+=javaScript;
+  htmlData+=buildJavascript();
   htmlData+=htmlFooter;
   
   //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
@@ -1505,18 +1514,18 @@ void sendCodePage(Code& selCode, int httpcode)
   server.client().stop();
 }
 
-void buildJavascript(){
-  javaScript="<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;";
-  javaScript+="var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; ";
-  javaScript+="var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "; 
-  javaScript+="last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);";
-  javaScript+="ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); ctx.stroke(); ";
-  javaScript+="for (i = 0;i < dlen;i++){ if (i % 2 === 0){ ctx.moveTo(last,highpos); last += (data[i]); ctx.lineTo(last,highpos); ";
-  javaScript+="ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); ";
-  javaScript+=" ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; ";
-  javaScript+="ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; ";
-  javaScript+="for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } </script>";
+String buildJavascript(){
 
+  return F("<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
+  "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
+  "var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "
+  "last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);"
+  "ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); ctx.stroke(); "
+  "for (i = 0;i < dlen;i++){ if (i % 2 === 0){ ctx.moveTo(last,highpos); last += (data[i]); ctx.lineTo(last,highpos); "
+  "ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); "
+  " ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; "
+  "ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; "
+  "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } </script>");
 }
 
 /**************************************************************************
@@ -1718,7 +1727,7 @@ unsigned long HexToLongInt(String h)
 **************************************************************************/
 void irblast(String type, String dataStr, unsigned int len, int rdelay, int pulse, int pdelay, int repeat, long address)
 {
-  DEBUG_PRINTLN("IR : Blasting off");
+  DEBUG_PRINTLN(F("IR : Blasting off"));
   type.toLowerCase();
   unsigned long data = HexToLongInt(dataStr);
   // Repeat Loop
@@ -1783,20 +1792,20 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
   strncpy(last_send.encoding, type.c_str(), 20);
   strncpy(last_send.address, ("0x" + String(address, HEX)).c_str(), 20);
   // strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_send.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
   last_send.valid = true;
 
 
 }
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
-  DEBUG_PRINTLN("IR : Raw transmit");
+  DEBUG_PRINTLN(F("IR : Raw transmit"));
 
   // Repeat Loop
   for (int r = 0; r < repeat; r++) {
     // Pulse Loop
     for (int p = 0; p < pulse; p++) {
-      DEBUG_PRINTLN("IR : Sending code");
+      DEBUG_PRINTLN(F("IR : Sending code"));
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
@@ -1834,13 +1843,13 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   strncpy(last_send.encoding, "RAW", 20);
   strncpy(last_send.address, "0x0", 40);
   //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_send.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + millis()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
   last_send.valid = true;
 
 }
 void roomba_send(int code, int pulse, int pdelay)
 {
-  DEBUG_PRINTLN("IR : Sending Roomba code");
+  DEBUG_PRINTLN(F("IR : Sending Roomba code"));
   DEBUG_PRINTLN(code);
 
   int length = 8;
@@ -1902,7 +1911,7 @@ void sendCodeReceivedString(Code& data, int number)
 
 String CreateKVPSystemInfoString()
 {
-  DEBUG_PRINTLN("KVP: Get KVP system information string...");
+  DEBUG_PRINTLN(F("KVP: Get KVP system information string..."));
   String result;
 
   result = "OK VALUES ";
@@ -1920,7 +1929,7 @@ String CreateKVPSystemInfoString()
 }
 String CreateKVPCommandURLString()    
 {   
-  DEBUG_PRINTLN("KVP: Get KVP command URL string...");   
+  DEBUG_PRINTLN(F("KVP: Get KVP command URL string..."));   
   String result;    
   result = "OK VALUES ";    
   result += deviceID;   
@@ -1932,14 +1941,14 @@ String CreateKVPCommandURLString()
 }
 String CreateKVPInitString()
 {
-  DEBUG_PRINTLN("KVP: Create KVP init string...");
+  DEBUG_PRINTLN(F("KVP: Create KVP init string..."));
   String result;
   result = "OK VALUES ";
   result += deviceID;
   return result;
 }
 void sendMultiCast(String msg) {
-  DEBUG_PRINT("KVP: Send UPD-Multicast: ");
+  DEBUG_PRINT(F("KVP: Send UPD-Multicast: "));
   DEBUG_PRINTLN(msg);
   if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1) 
   {
@@ -1965,7 +1974,7 @@ void loop() {
     copyCode(last_recv,last_recv_2);
     cvrtCode(last_recv, &results);
     // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
-  strncpy(last_recv.timestamp, (printDigits(hour()) + ":" + printDigits(minute()) + "." + (millis() % 1000)).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
     last_recv.valid = true;
     
     fullCode(&results); 
