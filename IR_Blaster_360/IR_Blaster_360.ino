@@ -50,7 +50,8 @@ const String VERSION       = "v2.7.2beta";
    Debug
 **************************************************************************/
 #ifdef DEBUG
-#define DEBUG_PRINT(x)  Serial.println (x)
+#define DEBUG_PRINT(x)  Serial.print (x)
+#define DEBUG_PRINTLN(x)  Serial.println (x)
 #else
 #define DEBUG_PRINT(x)
 #endif
@@ -142,6 +143,7 @@ time_t getNtpTime()
   Serial.println("NTP: Transmit NTP Request");
   // get a random server from the pool
   WiFi.hostByName(ntpserver, ntpServerIP);
+  Serial.print("NTP: ");
   Serial.print(ntpserver);
   Serial.print(": ");
   Serial.println(ntpServerIP);
@@ -193,7 +195,7 @@ void sendNTPpacket(IPAddress &address)
 **************************************************************************/
 void saveConfigCallback ()
 {
-  DEBUG_PRINT("Should save config");
+  DEBUG_PRINTLN("Should save config");
   shouldSaveConfig = true;
 }
 
@@ -211,7 +213,7 @@ void tick()
 **************************************************************************/
 void disableLed()
 {
-  DEBUG_PRINT("Turning off the LED to save power.");
+  DEBUG_PRINTLN("SYS: Turning off the LED to save power.");
   digitalWrite(LED_PIN, HIGH);                          // Shut down the LED
   ticker.detach();                                      // Stopping the ticker
 }
@@ -221,10 +223,10 @@ void disableLed()
 **************************************************************************/
 void configModeCallback (WiFiManager *myWiFiManager)
 {
-  DEBUG_PRINT("Entered config mode");
+  DEBUG_PRINTLN("Entered config mode");
   Serial.println(WiFi.softAPIP());
   //if you used auto generated SSID, print it
-  DEBUG_PRINT(myWiFiManager->getConfigPortalSSID());
+  DEBUG_PRINTLN(myWiFiManager->getConfigPortalSSID());
   //entered config mode, make led toggle faster
   ticker.attach(0.2, tick);
 }
@@ -251,13 +253,13 @@ bool setupWifi(bool resetConf)
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   if (SPIFFS.begin()) {
-    DEBUG_PRINT("mounted file system");
+    DEBUG_PRINTLN("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
-      DEBUG_PRINT("reading config file");
+      ;("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
-        DEBUG_PRINT("opened config file");
+        DEBUG_PRINTLN("opened config file");
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
         std::unique_ptr<char[]> buf(new char[size]);
@@ -267,7 +269,7 @@ bool setupWifi(bool resetConf)
         JsonObject& json = jsonBuffer.parseObject(buf.get());
         json.printTo(Serial);
         if (json.success()) {
-          DEBUG_PRINT("\nparsed json");
+          DEBUG_PRINTLN("\nparsed json");
 
           if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 40);
           if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
@@ -278,12 +280,12 @@ bool setupWifi(bool resetConf)
           port = atoi(port_str);
           if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 40);
         } else {
-          DEBUG_PRINT("failed to load json config");
+          DEBUG_PRINTLN("failed to load json config");
         }
       }
     } 
   } else {
-    DEBUG_PRINT("failed to mount FS");
+    DEBUG_PRINTLN("failed to mount FS");
   }
   
   WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 40);
@@ -300,7 +302,7 @@ bool setupWifi(bool resetConf)
   // and goes into a blocking loop awaiting configuration
   if (!wifiManager.autoConnect(wifi_config_name)) 
   {
-    DEBUG_PRINT("failed to connect and hit timeout");
+    DEBUG_PRINTLN("failed to connect and hit timeout");
     // reset and try again, or maybe put it to deep sleep
     ESP.reset();
     delay(1000);
@@ -313,7 +315,7 @@ bool setupWifi(bool resetConf)
   if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
   port = atoi(port_str);
   if (port != 80) {
-    DEBUG_PRINT("Default port changed");
+    DEBUG_PRINTLN("Default port changed");
     // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
   }
 
@@ -322,7 +324,7 @@ bool setupWifi(bool resetConf)
   // save the custom parameters to FS
   if (shouldSaveConfig) 
   {
-    DEBUG_PRINT(" config...");
+    DEBUG_PRINTLN(" config...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = host_name;
@@ -332,11 +334,11 @@ bool setupWifi(bool resetConf)
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINT("failed to open config file for writing");
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
     }
 
     json.printTo(Serial);
-    DEBUG_PRINT("");
+    DEBUG_PRINTLN("");
     json.printTo(configFile);
     configFile.close();
     //e nd save
@@ -355,8 +357,8 @@ void setup()
 {
   // Initialize serial
   Serial.begin(115200);
-  DEBUG_PRINT("");
-  DEBUG_PRINT("ESP8266 IR Controller");
+  DEBUG_PRINTLN("");
+  DEBUG_PRINTLN("ESP8266 IR Controller");
   pinMode(CONFIG_PIN, INPUT_PULLUP);
   if (!setupWifi(digitalRead(CONFIG_PIN) == LOW))
     return;
@@ -375,10 +377,10 @@ void setup()
     ticker.attach(2, disableLed);
 
     // Configure mDNS
-    if (MDNS.begin(host_name)) DEBUG_PRINT("mDNS started. Hostname is set to " + String(host_name) + ".local");
+    if (MDNS.begin(host_name)) DEBUG_PRINTLN("WEB: mDNS started. Hostname is set to " + String(host_name) + ".local");
     MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
     
-    DEBUG_PRINT("URL to send commands: http://" + String(host_name) + ".local:" + port_str);
+    DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
   
   
     if (getTime) 
@@ -401,7 +403,7 @@ void setup()
     // JSON handler for more complicated IR blaster routines
     server.on("/json", []()
     {
-      DEBUG_PRINT("Connection received - JSON");
+      DEBUG_PRINTLN("WEB: Connection received - JSON");
 
       // disable the receiver
       irrecv.disableIRIn();
@@ -411,14 +413,14 @@ void setup()
 
       if (!root.success())
       {
-        DEBUG_PRINT("JSON parsing failed");
+        DEBUG_PRINTLN("JSO: JSON parsing failed");
 
         // http response
         server.send(400, "text/html", "JSON parsing failed");
       }
       else if (server.arg("pass") != passcode)
       {
-        DEBUG_PRINT("Unauthorized access");
+        DEBUG_PRINTLN("WEB: Unauthorized access");
 
         // http response
         server.send(401, "text/html", "Invalid passcode");
@@ -464,7 +466,7 @@ void setup()
 
           if (x + 1 < root.size())
           {
-            DEBUG_PRINT("wait between two commands");
+            DEBUG_PRINTLN("IR : wait between two commands");
             delay(cdelay);
           }
         }
@@ -474,14 +476,14 @@ void setup()
       irrecv.enableIRIn();
     }); 
     server.on("/freemem", []() {
-      DEBUG_PRINT("Connection received: /freemem");
+      DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
       DEBUG_PRINT(ESP.getFreeSketchSpace());
       server.sendHeader("Connection", "close");
       server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
     });
 
     server.on("/received", []() {
-      DEBUG_PRINT("Connection received: /received");
+      DEBUG_PRINTLN("WEB: Connection received: /received");
       int id = server.arg("id").toInt();
       String output;
       if (id == 1 && last_recv.valid) {
@@ -511,12 +513,12 @@ void setup()
     server.on("/reboot", Handle_Reboot);
     
     server.on("/", []() {
-      DEBUG_PRINT("Connection received: /");
+      DEBUG_PRINTLN("WEB: Connection received: /");
       sendHomePage(); // 200
     });
 
     server.begin();
-    DEBUG_PRINT("HTTP Server started on port " + String(port));
+    DEBUG_PRINTLN("WEB: HTTP Server started on port " + String(port));
 
     // create unique DeviceID and send key value information
     deviceID = "IR_Blaster " + GetChipID();
@@ -528,17 +530,17 @@ void setup()
     // initialize the IR interface
     irsend.begin();
     irrecv.enableIRIn();
-    DEBUG_PRINT("Ready to send and receive IR signals");
+    DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
     
 }
 
 void Handle_config()
 {
   if (server.method() == HTTP_GET){
-    DEBUG_PRINT("Connection received - /config");
+    DEBUG_PRINTLN("WEB: Connection received - /config");
     sendConfigPage();
   } else {
-    DEBUG_PRINT("Connection received - /config (save)");
+    DEBUG_PRINTLN("WEB: Connection received - /config (save)");
     sendConfigPage("Settings saved successfully!", "Success!", 1);
     }
 }
@@ -553,7 +555,7 @@ void Handle_Reboot(){
 
 void Handle_ResetWiFi()
 {
-  DEBUG_PRINT("Reset WiFi settings and reboot gateway");
+  DEBUG_PRINTLN("SYS: Reset WiFi settings and reboot gateway");
   // define WiFiManager instance
   WiFiManager wifiManager;
 
@@ -572,42 +574,45 @@ void Handle_ResetWiFi()
 **************************************************************************/
 void FlashESP()
 {
-  HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START)
-  {
-    Serial.setDebugOutput(false);
-    WiFiUDP::stopAll();
-    Serial.printf("Update: %s\n", upload.filename.c_str());
-    uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-    //start with max available size
-    if (!Update.begin(maxSketchSpace))
-    {
 
-      Update.printError(Serial);
-    }
-  }
-  else if (upload.status == UPLOAD_FILE_WRITE)
-  {
-    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+  HTTPUpload& upload = server.upload();
+  if (!(upload.filename[0] == 0)){
+    if (upload.status == UPLOAD_FILE_START)
     {
-      Update.printError(Serial);
+      Serial.setDebugOutput(false);
+      WiFiUDP::stopAll();
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+      //start with max available size
+      if (!Update.begin(maxSketchSpace))
+      {
+        Update.printError(Serial);
+      }
     }
-  }
-  else if (upload.status == UPLOAD_FILE_END)
-  {
-    //true to set the size to the current progress
-    if (Update.end(true))
+    else if (upload.status == UPLOAD_FILE_WRITE)
     {
-      Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+      {
+        Update.printError(Serial);
+      }
     }
-    else
+    else if (upload.status == UPLOAD_FILE_END)
     {
-      Update.printError(Serial);
+      //true to set the size to the current progress
+      if (Update.end(true))
+      {
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      }
+      else
+      {
+        Update.printError(Serial);
+      }
+      Serial.setDebugOutput(false);
     }
-    Serial.setDebugOutput(false);
+    yield();
   }
-  yield();
 }
+
 void Handle_Style()
 {
   server.sendHeader("Connection", "close");
@@ -619,8 +624,10 @@ void Handle_upload()
   server.sendHeader("Connection", "close");
   server.send(200, "text/html", GetUploadHTML());
 }
+
 void Handle_update()
 {
+  DEBUG_PRINTLN("handle_update call");
   server.sendHeader("Connection", "close");
   server.sendHeader("Access-Control-Allow-Origin", "*");
   bool error = Update.hasError();
@@ -628,6 +635,8 @@ void Handle_update()
 
   if (!error)
   {
+    DEBUG_PRINTLN("reboot call");
+    delay(500);  // problem with ajax response before reboot
     ESP.restart();
   }
 }
@@ -965,11 +974,12 @@ String GetStyle()
    add leading zeros if under 10
 **************************************************************************/
 
-String printDigits(int digits) {
-String s ="";
-(digits < 10) ? s = "0" + String(digits): s = String(digits);
-return s;
+String printDigits(int digits) { // 2 digits
+  String s="";
+  (digits < 10) ? s = "0" + String(digits): s = String(digits);
+  return s;
 }
+
 
 /**************************************************************************
    IP Address to String
@@ -990,8 +1000,9 @@ int rokuCommand(String ip, String data)
   HTTPClient http;
   String url = "http://" + ip + ":8060/" + data;
   http.begin(url);
-  DEBUG_PRINT(url);
-  DEBUG_PRINT("Sending roku command");
+  DEBUG_PRINT("IR : ");
+  DEBUG_PRINTLN(url);
+  DEBUG_PRINTLN("IR : Sending roku command");
 
   copyCode(last_send_4, last_send_5);
   copyCode(last_send_3, last_send_4);
@@ -1090,7 +1101,7 @@ String Uint64toString(uint64_t input, uint8_t base)
 **************************************************************************/
 void fullCode (decode_results *results)
 {
-  Serial.print("One line: ");
+  Serial.print("IR : One line: ");
   serialPrintUint64(results->value, 16);
   Serial.print(":");
   Serial.print(encoding(results));
@@ -1230,7 +1241,7 @@ char ntpserver_conf[40] = "";
 //
 
 if (type == 1){                                     // save data
-  String message = "Number of args received:";
+  String message = "WEB: Number of args received:";
   message += String(server.args()) + "\n";
   for (int i = 0; i < server.args(); i++) {
     message += "Arg " + (String)i + " –> ";
@@ -1243,13 +1254,13 @@ if (type == 1){                                     // save data
   strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
   strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 40);
 
-  DEBUG_PRINT(message);
+  DEBUG_PRINTLN(message);
 
                             // validate values before saving
   bool validconf = true;
   if (validconf) 
   {
-    DEBUG_PRINT("save config.json...");
+    DEBUG_PRINTLN("SPI: save config.json...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = String(host_name_conf);
@@ -1259,11 +1270,11 @@ if (type == 1){                                     // save data
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINT("failed to open config file for writing");
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
     }
 
     json.printTo(Serial);
-    DEBUG_PRINT("");
+    DEBUG_PRINTLN("");
     json.printTo(configFile);
     configFile.close();
     //end save
@@ -1272,14 +1283,14 @@ if (type == 1){                                     // save data
 } else {
   if (SPIFFS.begin()) 
     {
-      DEBUG_PRINT("mounted file system");
+      DEBUG_PRINTLN("SPI: mounted file system");
       if (SPIFFS.exists("/config.json")) 
       {
         //file exists, reading and loading
-        DEBUG_PRINT("reading config file");
+        DEBUG_PRINTLN("SPI: reading config file");
         File configFile = SPIFFS.open("/config.json", "r");
         if (configFile) {
-          DEBUG_PRINT("opened config file");
+          DEBUG_PRINTLN("SPI: opened config file");
           size_t size = configFile.size();
           // Allocate a buffer to store contents of the file.
           std::unique_ptr<char[]> buf(new char[size]);
@@ -1287,9 +1298,10 @@ if (type == 1){                                     // save data
           configFile.readBytes(buf.get(), size);
           DynamicJsonBuffer jsonBuffer;
           JsonObject& json = jsonBuffer.parseObject(buf.get());
+          Serial.print("JSO: ");
           json.printTo(Serial);
           if (json.success()) {
-            DEBUG_PRINT("\nparsed json");
+            DEBUG_PRINTLN("\nJSO: parsed json");
 
             if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
             if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
@@ -1300,12 +1312,12 @@ if (type == 1){                                     // save data
             if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 40);
 
           } else {
-            DEBUG_PRINT("failed to load json config");
+            DEBUG_PRINTLN("JSO: failed to load json config");
           }
         }
       }
     } else {
-      DEBUG_PRINT("failed to mount FS");
+      DEBUG_PRINTLN("SPI: failed to mount FS");
     }
   }
 
@@ -1628,7 +1640,7 @@ void dumpRaw(decode_results *results)
 void dumpCode(decode_results *results)
 {
   // Start declaration
-  Serial.print("uint16_t  ");              // variable type
+  Serial.print("IR : uint16_t  ");              // variable type
   Serial.print("rawData[");                // array name
   Serial.print(results->rawlen - 1, DEC);  // array size
   Serial.print("] = {");                   // Start declaration
@@ -1659,16 +1671,16 @@ void dumpCode(decode_results *results)
     // NOTE: It will ignore the atypical case when a message has been decoded
     // but the address & the command are both 0.
     if (results->address > 0 || results->command > 0) {
-      Serial.print("uint32_t  address = 0x");
+      Serial.print("IR : uint32_t  address = 0x");
       Serial.print(results->address, HEX);
       Serial.println(";");
-      Serial.print("uint32_t  command = 0x");
+      Serial.print("IR : uint32_t  command = 0x");
       Serial.print(results->command, HEX);
       Serial.println(";");
     }
 
     // All protocols have data
-    Serial.print("uint64_t  data = 0x");
+    Serial.print("IR : uint64_t  data = 0x");
     serialPrintUint64(results->value, 16);
     Serial.println(";");
   }
@@ -1706,7 +1718,7 @@ unsigned long HexToLongInt(String h)
 **************************************************************************/
 void irblast(String type, String dataStr, unsigned int len, int rdelay, int pulse, int pdelay, int repeat, long address)
 {
-  DEBUG_PRINT("Blasting off");
+  DEBUG_PRINTLN("IR : Blasting off");
   type.toLowerCase();
   unsigned long data = HexToLongInt(dataStr);
   // Repeat Loop
@@ -1778,13 +1790,13 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
 }
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
-  DEBUG_PRINT("Raw transmit");
+  DEBUG_PRINTLN("IR : Raw transmit");
 
   // Repeat Loop
   for (int r = 0; r < repeat; r++) {
     // Pulse Loop
     for (int p = 0; p < pulse; p++) {
-      DEBUG_PRINT("Sending code");
+      DEBUG_PRINTLN("IR : Sending code");
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
@@ -1828,8 +1840,8 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
 }
 void roomba_send(int code, int pulse, int pdelay)
 {
-  DEBUG_PRINT("Sending Roomba code");
-  DEBUG_PRINT(code);
+  DEBUG_PRINTLN("IR : Sending Roomba code");
+  DEBUG_PRINTLN(code);
 
   int length = 8;
   uint16_t raw[length * 2];
@@ -1890,7 +1902,7 @@ void sendCodeReceivedString(Code& data, int number)
 
 String CreateKVPSystemInfoString()
 {
-  DEBUG_PRINT("Get KVP system information string...");
+  DEBUG_PRINTLN("KVP: Get KVP system information string...");
   String result;
 
   result = "OK VALUES ";
@@ -1908,7 +1920,7 @@ String CreateKVPSystemInfoString()
 }
 String CreateKVPCommandURLString()    
 {   
-  DEBUG_PRINT("Get KVP command URL string...");   
+  DEBUG_PRINTLN("KVP: Get KVP command URL string...");   
   String result;    
   result = "OK VALUES ";    
   result += deviceID;   
@@ -1920,15 +1932,15 @@ String CreateKVPCommandURLString()
 }
 String CreateKVPInitString()
 {
-  DEBUG_PRINT("Create KVP init string...");
+  DEBUG_PRINTLN("KVP: Create KVP init string...");
   String result;
   result = "OK VALUES ";
   result += deviceID;
   return result;
 }
 void sendMultiCast(String msg) {
-  DEBUG_PRINT("Send UPD-Multicast: ");
-  DEBUG_PRINT(msg);
+  DEBUG_PRINT("KVP: Send UPD-Multicast: ");
+  DEBUG_PRINTLN(msg);
   if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1) 
   {
     WiFiUdp.write(msg.c_str());
@@ -1944,12 +1956,8 @@ void loop() {
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
  
- // timeClient.update();                // update only after 
-
-
-
   if (irrecv.decode(&results)) {                                  // Grab an IR code
-    Serial.println("Signal received:");
+    Serial.print("IR : Signal received: ");
     
     copyCode(last_recv_4,last_recv_5);
     copyCode(last_recv_3,last_recv_4);
@@ -1963,11 +1971,11 @@ void loop() {
     fullCode(&results); 
     dumpCode(&results);                                           // Output the results as source code
     
-    if (last_recv.valid)  Serial.println( last_recv.raw );
-    if (last_recv_2.valid) Serial.println( last_recv_2.raw );
-    if (last_recv_3.valid) Serial.println( last_recv_3.raw );
-    if (last_recv_4.valid) Serial.println( last_recv_4.raw );
-    if (last_recv_5.valid) Serial.println( last_recv_5.raw );
+    //if (last_recv.valid)  Serial.println( last_recv.raw );
+    // if (last_recv_2.valid) Serial.println( last_recv_2.raw );
+    // if (last_recv_3.valid) Serial.println( last_recv_3.raw );
+    // if (last_recv_4.valid) Serial.println( last_recv_4.raw );
+    // if (last_recv_5.valid) Serial.println( last_recv_5.raw );
     irrecv.resume();                                              // Prepare for the next value
     digitalWrite(LED_PIN, LOW);                                    // Turn on the LED for 0.5 seconds
     ticker.attach(0.5, disableLed);
@@ -1977,7 +1985,7 @@ void loop() {
   if (Serial.available() == true)
   {
     String command = Serial.readString();
-    DEBUG_PRINT(command);
+    DEBUG_PRINTLN(command);
 
     if (command == "reset") Handle_ResetWiFi();
   }
