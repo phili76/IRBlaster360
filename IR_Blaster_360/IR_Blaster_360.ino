@@ -30,7 +30,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
-#include <Dns.h>
+//#include <Dns.h>
 #include <TimeLib.h>
 
 
@@ -61,21 +61,21 @@ const String VERSION       = "v2.7.3beta";
    Variables
 **************************************************************************/
 // config.json 
-char passcode[40] = "";
-char host_name[40] = "";
+char passcode[20] = "";
+char host_name[20] = "";
 char port_str[5] = "80";
-char ntpserver[40] = "";  
+char ntpserver[30] = "";  
 
 class Code 
 {
   public:
     char encoding[14] = "";
     char address[20] = "";
-    char command[40] = "";
-    char data[40] = "";
+    char command[20] = "";
+    char data[8] = "";
     String raw = "";
     int bits = 0;
-    char timestamp[40] = "";
+    char timestamp[13] = "";
     bool valid = false;
 };
 
@@ -115,7 +115,7 @@ String deviceID = "";
 //NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
 char* poolServerName = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
-char boottime[40] = ""; 
+char boottime[20] = ""; 
 
 const int timeZone = 1;     // Central European Time
 WiFiUDP Udp;
@@ -196,7 +196,7 @@ void sendNTPpacket(IPAddress &address)
 **************************************************************************/
 void saveConfigCallback ()
 {
-  DEBUG_PRINTLN(F("Should save config"));
+  DEBUG_PRINTLN("Should save config");
   shouldSaveConfig = true;
 }
 
@@ -214,7 +214,7 @@ void tick()
 **************************************************************************/
 void disableLed()
 {
-  DEBUG_PRINTLN(F("SYS: Turning off the LED to save power."));
+  DEBUG_PRINTLN("SYS: Turning off the LED to save power.");
   digitalWrite(LED_PIN, HIGH);                          // Shut down the LED
   ticker.detach();                                      // Stopping the ticker
 }
@@ -224,7 +224,7 @@ void disableLed()
 **************************************************************************/
 void configModeCallback (WiFiManager *myWiFiManager)
 {
-  DEBUG_PRINTLN(F("Entered config mode"));
+  DEBUG_PRINTLN("Entered config mode");
   Serial.println(WiFi.softAPIP());
   //if you used auto generated SSID, print it
   DEBUG_PRINTLN(myWiFiManager->getConfigPortalSSID());
@@ -254,13 +254,13 @@ bool setupWifi(bool resetConf)
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   if (SPIFFS.begin()) {
-    DEBUG_PRINTLN(F("mounted file system"));
+    DEBUG_PRINTLN("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
       ;("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
-        DEBUG_PRINTLN(F("opened config file"));
+        DEBUG_PRINTLN("opened config file");
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
         std::unique_ptr<char[]> buf(new char[size]);
@@ -270,32 +270,32 @@ bool setupWifi(bool resetConf)
         JsonObject& json = jsonBuffer.parseObject(buf.get());
         json.printTo(Serial);
         if (json.success()) {
-          DEBUG_PRINTLN(F("\nparsed json"));
+          DEBUG_PRINTLN("\nparsed json");
 
-          if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 40);
-          if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
+          if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 20);
+          if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 20);
           if (json.containsKey("port_str")) {
             strncpy(port_str, json["port_str"], 5);
           }
           if (port_str[0] == 0) strncpy(port_str, "80", 5);    //set default hostname when not set!
           port = atoi(port_str);
-          if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 40);
+          if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 30);
         } else {
-          DEBUG_PRINTLN(F("failed to load json config"));
+          DEBUG_PRINTLN("failed to load json config");
         }
       }
     } 
   } else {
-    DEBUG_PRINTLN(F("failed to mount FS"));
+    DEBUG_PRINTLN("failed to mount FS");
   }
   
-  WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 40);
+  WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 20);
   wifiManager.addParameter(&custom_hostname);
-  WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 40);
+  WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 20);
   wifiManager.addParameter(&custom_passcode);
   WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 5);
   wifiManager.addParameter(&custom_port);
-  WiFiManagerParameter custom_ntpserver("ntpserver", "Choose a ntpserver", ntpserver, 40);
+  WiFiManagerParameter custom_ntpserver("ntpserver", "Choose a ntpserver", ntpserver, 30);
   wifiManager.addParameter(&custom_ntpserver);
 
   // fetches ssid and pass and tries to connect
@@ -303,20 +303,20 @@ bool setupWifi(bool resetConf)
   // and goes into a blocking loop awaiting configuration
   if (!wifiManager.autoConnect(wifi_config_name)) 
   {
-    DEBUG_PRINTLN(F("failed to connect and hit timeout"));
+    DEBUG_PRINTLN("failed to connect and hit timeout");
     // reset and try again, or maybe put it to deep sleep
     ESP.reset();
     delay(1000);
   }
 
   // if you get here you have connected to the WiFi
-  strncpy(host_name, custom_hostname.getValue(), 40);
-  strncpy(passcode, custom_passcode.getValue(), 40);
+  strncpy(host_name, custom_hostname.getValue(), 20);
+  strncpy(passcode, custom_passcode.getValue(), 20);
   strncpy(port_str, custom_port.getValue(), 5);
   if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
   port = atoi(port_str);
   if (port != 80) {
-    DEBUG_PRINTLN(F("Default port changed"));
+    DEBUG_PRINTLN("Default port changed");
     // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
   }
 
@@ -325,7 +325,7 @@ bool setupWifi(bool resetConf)
   // save the custom parameters to FS
   if (shouldSaveConfig) 
   {
-    DEBUG_PRINTLN(F(" config..."));
+    DEBUG_PRINTLN(" config...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = host_name;
@@ -335,7 +335,7 @@ bool setupWifi(bool resetConf)
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINTLN(F("SPI: failed to open config file for writing"));
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
     }
 
     json.printTo(Serial);
@@ -359,12 +359,12 @@ void setup()
   // Initialize serial
   Serial.begin(115200);
   DEBUG_PRINTLN("");
-  DEBUG_PRINTLN(F("ESP8266 IR Controller"));
+  DEBUG_PRINTLN("ESP8266 IR Controller");
   pinMode(CONFIG_PIN, INPUT_PULLUP);
   if (!setupWifi(digitalRead(CONFIG_PIN) == LOW))
     return;
-  if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 40);    //set default hostname when not set!
-  if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 40);    //set default ntp server when not set!
+  if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 20);    //set default hostname when not set!
+  if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 30);    //set default ntp server when not set!
     WiFi.hostname(host_name);
     while (WiFi.status() != WL_CONNECTED) 
     {
@@ -392,9 +392,9 @@ void setup()
       Serial.println(Udp.localPort());
       Serial.println("NTP: waiting for sync");
       setSyncProvider(getNtpTime);
-      setSyncInterval(300);
+      setSyncInterval(3600);
       String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
-      strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
+      strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
     } 
     else {                  // if NTP is disabled set Dummydate
       setTime(1514764800);  // 1.1.2018 00:00 
@@ -404,7 +404,7 @@ void setup()
     // JSON handler for more complicated IR blaster routines
     server.on("/json", []()
     {
-      DEBUG_PRINTLN(F("WEB: Connection received - JSON"));
+      DEBUG_PRINTLN("WEB: Connection received - JSON");
 
       // disable the receiver
       irrecv.disableIRIn();
@@ -414,14 +414,14 @@ void setup()
 
       if (!root.success())
       {
-        DEBUG_PRINTLN(F("JSO: JSON parsing failed"));
+        DEBUG_PRINTLN("JSO: JSON parsing failed");
 
         // http response
         server.send(400, "text/html", "JSON parsing failed");
       }
       else if (server.arg("pass") != passcode)
       {
-        DEBUG_PRINTLN(F("WEB: Unauthorized access"));
+        DEBUG_PRINTLN("WEB: Unauthorized access");
 
         // http response
         server.send(401, "text/html", "Invalid passcode");
@@ -467,7 +467,7 @@ void setup()
 
           if (x + 1 < root.size())
           {
-            DEBUG_PRINTLN(F("IR : wait between two commands"));
+            DEBUG_PRINTLN("IR : wait between two commands");
             delay(cdelay);
           }
         }
@@ -477,14 +477,14 @@ void setup()
       irrecv.enableIRIn();
     }); 
     server.on("/freemem", []() {
-      DEBUG_PRINTLN(F("WEB: Connection received: /freemem : "));
+      DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
       DEBUG_PRINT(ESP.getFreeSketchSpace());
       server.sendHeader("Connection", "close");
       server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
     });
 
     server.on("/received", []() {
-      DEBUG_PRINTLN(F("WEB: Connection received: /received"));
+      DEBUG_PRINTLN("WEB: Connection received: /received");
       int id = server.arg("id").toInt();
       String output;
       if (id == 1 && last_recv.valid) {
@@ -514,7 +514,7 @@ void setup()
     server.on("/reboot", Handle_Reboot);
     
     server.on("/", []() {
-      DEBUG_PRINTLN(F("WEB: Connection received: /"));
+      DEBUG_PRINTLN("WEB: Connection received: /");
       sendHomePage(); // 200
     });
 
@@ -531,17 +531,17 @@ void setup()
     // initialize the IR interface
     irsend.begin();
     irrecv.enableIRIn();
-    DEBUG_PRINTLN(F("SYS: Ready to send and receive IR signals"));
+    DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
     
 }
 
 void Handle_config()
 {
   if (server.method() == HTTP_GET){
-    DEBUG_PRINTLN(F("WEB: Connection received - /config"));
+    DEBUG_PRINTLN("WEB: Connection received - /config");
     sendConfigPage();
   } else {
-    DEBUG_PRINTLN(F("WEB: Connection received - /config (save)"));
+    DEBUG_PRINTLN("WEB: Connection received - /config (save)");
     sendConfigPage("Settings saved successfully!", "Success!", 1);
     }
 }
@@ -549,14 +549,14 @@ void Handle_config()
 
 void Handle_Reboot(){
   server.sendHeader("Connection", "close");
-  server.send(200, "text/html", "<body>Reboot OK, redirect in <b id='count'>3</b></body><script>var counter = 3;setInterval(function() {counter--;if(counter < 1) {window.location = '/';} else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>");
+  server.send(200, "text/html", F("<body>Reboot OK, redirect in <b id='count'>3</b></body><script>var counter = 3;setInterval(function() {counter--;if(counter < 1) {window.location = '/';} else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
   delay(500);
   ESP.restart();
 }
 
 void Handle_ResetWiFi()
 {
-  DEBUG_PRINTLN(F("SYS: Reset WiFi settings and reboot gateway"));
+  DEBUG_PRINTLN("SYS: Reset WiFi settings and reboot gateway");
   // define WiFiManager instance
   WiFiManager wifiManager;
 
@@ -628,7 +628,7 @@ void Handle_upload()
 
 void Handle_update()
 {
-  DEBUG_PRINTLN(F("handle_update call"));
+  DEBUG_PRINTLN("handle_update call");
   server.sendHeader("Connection", "close");
   server.sendHeader("Access-Control-Allow-Origin", "*");
   bool error = Update.hasError();
@@ -636,7 +636,7 @@ void Handle_update()
 
   if (!error)
   {
-    DEBUG_PRINTLN(F("reboot call"));
+    DEBUG_PRINTLN("reboot call");
     delay(500);  // problem with ajax response before reboot
     ESP.restart();
   }
@@ -1010,22 +1010,22 @@ int rokuCommand(String ip, String data)
   HTTPClient http;
   String url = "http://" + ip + ":8060/" + data;
   http.begin(url);
-  DEBUG_PRINT(F("IR : "));
+  DEBUG_PRINT("IR : ");
   DEBUG_PRINTLN(url);
-  DEBUG_PRINTLN(F("IR : Sending roku command"));
+  DEBUG_PRINTLN("IR : Sending roku command");
 
   copyCode(last_send_4, last_send_5);
   copyCode(last_send_3, last_send_4);
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, data.c_str(), 40);
+  strncpy(last_send.data, data.c_str(), 8);
   last_send.bits = 1;
   strncpy(last_send.encoding, "roku", 20);
-  strncpy(last_send.address, ip.c_str(), 40);
+  strncpy(last_send.address, ip.c_str(), 20);
 
 //  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3((millis() % 1000))).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3((millis() % 1000))).c_str(), 13);
   last_send.valid = true;
 
   return http.POST("");
@@ -1236,10 +1236,10 @@ void sendConfigPage(String message, String header, int type)
 }
 void sendConfigPage(String message, String header, int type, int httpcode)
 {
-char passcode_conf[40] = "";
-char host_name_conf[40] = "";
+char passcode_conf[20] = "";
+char host_name_conf[20] = "";
 char port_str_conf[5] = "";
-char ntpserver_conf[40] = "";
+char ntpserver_conf[30] = "";
 
 //
 // todo
@@ -1258,10 +1258,10 @@ if (type == 1){                                     // save data
     message += server.arg(i) + "\n";
   }
   if (server.hasArg("getTime")) {getTime = true;} else {getTime = false;}
-  strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 40);
-  strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 40);
+  strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 20);
+  strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 20);
   strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
-  strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 40);
+  strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 30);
 
   DEBUG_PRINTLN(message);
 
@@ -1269,7 +1269,7 @@ if (type == 1){                                     // save data
   bool validconf = true;
   if (validconf) 
   {
-    DEBUG_PRINTLN(F("SPI: save config.json..."));
+    DEBUG_PRINTLN("SPI: save config.json...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = String(host_name_conf);
@@ -1279,7 +1279,7 @@ if (type == 1){                                     // save data
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINTLN(F("SPI: failed to open config file for writing"));
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
     }
 
     json.printTo(Serial);
@@ -1292,14 +1292,14 @@ if (type == 1){                                     // save data
 } else {
   if (SPIFFS.begin()) 
     {
-      DEBUG_PRINTLN(F("SPI: mounted file system"));
+      DEBUG_PRINTLN("SPI: mounted file system");
       if (SPIFFS.exists("/config.json")) 
       {
         //file exists, reading and loading
-        DEBUG_PRINTLN(F("SPI: reading config file"));
+        DEBUG_PRINTLN("SPI: reading config file");
         File configFile = SPIFFS.open("/config.json", "r");
         if (configFile) {
-          DEBUG_PRINTLN(F("SPI: opened config file"));
+          DEBUG_PRINTLN("SPI: opened config file");
           size_t size = configFile.size();
           // Allocate a buffer to store contents of the file.
           std::unique_ptr<char[]> buf(new char[size]);
@@ -1310,23 +1310,23 @@ if (type == 1){                                     // save data
           Serial.print("JSO: ");
           json.printTo(Serial);
           if (json.success()) {
-            DEBUG_PRINTLN(F("\nJSO: parsed json"));
+            DEBUG_PRINTLN("\nJSO: parsed json");
 
-            if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
-            if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
+            if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 20);
+            if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 20);
             if (json.containsKey("port_str")) {
               strncpy(port_str_conf, json["port_str"], 5);
             }
             if (port_str_conf[0] == 0) strncpy(port_str_conf, "80", 5) ;    //set default port when not set!
-            if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 40);
+            if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 30);
 
           } else {
-            DEBUG_PRINTLN(F("JSO: failed to load json config"));
+            DEBUG_PRINTLN("JSO: failed to load json config");
           }
         }
       }
     } else {
-      DEBUG_PRINTLN(F("SPI: failed to mount FS"));
+      DEBUG_PRINTLN("SPI: failed to mount FS");
     }
   }
 
@@ -1559,11 +1559,11 @@ void codeJson(JsonObject &codeData, decode_results *results)
 // new convert 
 //
 void copyCode (Code& c1, Code& c2) {
-  strncpy(c2.data, c1.data, 40);
+  strncpy(c2.data, c1.data, 8);
   strncpy(c2.encoding, c1.encoding, 20);
-  strncpy(c2.timestamp, c1.timestamp, 40);
-  strncpy(c2.address, c1.address, 40);
-  strncpy(c2.command, c1.command, 40);
+  strncpy(c2.timestamp, c1.timestamp, 13);
+  strncpy(c2.address, c1.address, 20);
+  strncpy(c2.command, c1.command, 20);
   c2.bits = c1.bits;
   c2.raw = c1.raw;
   c2.valid = c1.valid;
@@ -1574,7 +1574,7 @@ void copyCode (Code& c1, Code& c2) {
 //
 void cvrtCode(Code& codeData, decode_results *results)
 {
-  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 40);
+  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 8);
   strncpy(codeData.encoding, encoding(results).c_str(), 20);
   codeData.bits = results->bits;
   String r = "";
@@ -1586,11 +1586,11 @@ void cvrtCode(Code& codeData, decode_results *results)
     }
   codeData.raw = r;
   if (results->decode_type != UNKNOWN) {
-    strncpy(codeData.address, ("0x" + String(results->address, HEX)).c_str(), 40);
-    strncpy(codeData.command, ("0x" + String(results->command, HEX)).c_str(), 40);
+    strncpy(codeData.address, ("0x" + String(results->address, HEX)).c_str(), 20);
+    strncpy(codeData.command, ("0x" + String(results->command, HEX)).c_str(), 20);
   } else {
-    strncpy(codeData.address, "0x0", 40);
-    strncpy(codeData.command, "0x0", 40);
+    strncpy(codeData.address, "0x0", 20);
+    strncpy(codeData.command, "0x0", 20);
   }
 }
 
@@ -1727,7 +1727,7 @@ unsigned long HexToLongInt(String h)
 **************************************************************************/
 void irblast(String type, String dataStr, unsigned int len, int rdelay, int pulse, int pdelay, int repeat, long address)
 {
-  DEBUG_PRINTLN(F("IR : Blasting off"));
+  DEBUG_PRINTLN("IR : Blasting off");
   type.toLowerCase();
   unsigned long data = HexToLongInt(dataStr);
   // Repeat Loop
@@ -1787,25 +1787,25 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, dataStr.c_str(), 40);
+  strncpy(last_send.data, dataStr.c_str(), 8);
   last_send.bits = len;
   strncpy(last_send.encoding, type.c_str(), 20);
   strncpy(last_send.address, ("0x" + String(address, HEX)).c_str(), 20);
   // strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
   last_send.valid = true;
 
 
 }
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
-  DEBUG_PRINTLN(F("IR : Raw transmit"));
+  DEBUG_PRINTLN("IR : Raw transmit");
 
   // Repeat Loop
   for (int r = 0; r < repeat; r++) {
     // Pulse Loop
     for (int p = 0; p < pulse; p++) {
-      DEBUG_PRINTLN(F("IR : Sending code"));
+      DEBUG_PRINTLN("IR : Sending code");
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
@@ -1838,18 +1838,18 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, "", 40);
+  strncpy(last_send.data, "", 8);
   last_send.bits = raw.size();
   strncpy(last_send.encoding, "RAW", 20);
-  strncpy(last_send.address, "0x0", 40);
+  strncpy(last_send.address, "0x0", 20);
   //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
-  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
   last_send.valid = true;
 
 }
 void roomba_send(int code, int pulse, int pdelay)
 {
-  DEBUG_PRINTLN(F("IR : Sending Roomba code"));
+  DEBUG_PRINTLN("IR : Sending Roomba code");
   DEBUG_PRINTLN(code);
 
   int length = 8;
@@ -1911,7 +1911,7 @@ void sendCodeReceivedString(Code& data, int number)
 
 String CreateKVPSystemInfoString()
 {
-  DEBUG_PRINTLN(F("KVP: Get KVP system information string..."));
+  DEBUG_PRINTLN("KVP: Get KVP system information string...");
   String result;
 
   result = "OK VALUES ";
@@ -1929,7 +1929,7 @@ String CreateKVPSystemInfoString()
 }
 String CreateKVPCommandURLString()    
 {   
-  DEBUG_PRINTLN(F("KVP: Get KVP command URL string..."));   
+  DEBUG_PRINTLN("KVP: Get KVP command URL string...");   
   String result;    
   result = "OK VALUES ";    
   result += deviceID;   
@@ -1941,14 +1941,14 @@ String CreateKVPCommandURLString()
 }
 String CreateKVPInitString()
 {
-  DEBUG_PRINTLN(F("KVP: Create KVP init string..."));
+  DEBUG_PRINTLN("KVP: Create KVP init string...");
   String result;
   result = "OK VALUES ";
   result += deviceID;
   return result;
 }
 void sendMultiCast(String msg) {
-  DEBUG_PRINT(F("KVP: Send UPD-Multicast: "));
+  DEBUG_PRINT("KVP: Send UPD-Multicast: ");
   DEBUG_PRINTLN(msg);
   if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1) 
   {
@@ -1964,20 +1964,20 @@ void sendMultiCast(String msg) {
 void loop() {
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
- 
   if (irrecv.decode(&results)) {                                  // Grab an IR code
-    Serial.print("IR : Signal received: ");
-    
+    Serial.print("IR  : Signal received: ");
     copyCode(last_recv_4,last_recv_5);
     copyCode(last_recv_3,last_recv_4);
     copyCode(last_recv_2,last_recv_3);
     copyCode(last_recv,last_recv_2);
-    cvrtCode(last_recv, &results);
+    cvrtCode(last_recv, &results);  //error !
+
     // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
-  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + "." + printDigits3(millis() % 1000)).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
     last_recv.valid = true;
-    
+
     fullCode(&results); 
+ 
     dumpCode(&results);                                           // Output the results as source code
     
     //if (last_recv.valid)  Serial.println( last_recv.raw );
@@ -1998,4 +1998,6 @@ void loop() {
 
     if (command == "reset") Handle_ResetWiFi();
   }
+    yield();
+    now();
 }
