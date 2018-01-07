@@ -1,6 +1,6 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.3beta                                                     */
+/*     IR_Blaster_360 2.7.4                                                         */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
@@ -44,7 +44,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.3beta";
+const String VERSION       = "v2.7.4";
 
 /**************************************************************************
    Debug
@@ -1118,7 +1118,7 @@ void fullCode (decode_results *results)
   Serial.print(":");
   Serial.print(results->bits, DEC);
   if (results->overflow)
-    Serial.println("WARNING: IR code too long."
+    Serial.println(" WARNING: IR code too long."
                    "Edit IRrecv.h and increase RAWBUF");
   Serial.println("");
 }
@@ -1156,6 +1156,8 @@ void sendHeader(int httpcode)
   server.sendContent("              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n");
   server.sendContent("            <li class='active'>\n");
   server.sendContent("              <a href='/config'>Config</a></li>\n");
+  server.sendContent("            <li class='active'>\n");
+  server.sendContent("              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n");
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
@@ -1188,6 +1190,8 @@ void buildHeader()
   htmlHeader+="              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n";
   htmlHeader+="            <li class='active'>\n";
   htmlHeader+="              <a href='/config'>Config</a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n";
   htmlHeader+="          </ul>\n";
   htmlHeader+="        </div>\n";
   htmlHeader+="      </div><hr />\n";
