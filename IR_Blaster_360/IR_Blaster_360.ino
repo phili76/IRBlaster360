@@ -1,11 +1,15 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.4                                                         */
+/*     IR_Blaster_360 2.7.5                                                         */
+/*     Stand: 03.01.2017                                                            */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
+/*  shield for wemos D1                                                             */
+/*  https://github.com/emc2cube/MySWeMosIRShield                                    */
+/*                                                                                  */
+/*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 03.01.2017                                                               */
 /*                                                                                  */
 /*  Bibliotheken:                                                                   */
 /*    ArduinoJson                                                                   */
@@ -30,9 +34,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
-//#include <Dns.h>
 #include <TimeLib.h>
-
+#include <PubSubClient.h>
 
 /**************************************************************************
    Defines
@@ -44,7 +47,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.4";
+const String VERSION       = "v2.7.5";
 
 /**************************************************************************
    Debug
@@ -60,13 +63,13 @@ const String VERSION       = "v2.7.4";
 /**************************************************************************
    Variables
 **************************************************************************/
-// config.json 
+// config.json
 char passcode[20] = "";
 char host_name[20] = "";
 char port_str[5] = "80";
-char ntpserver[30] = "";  
+char ntpserver[30] = "";
 
-class Code 
+class Code
 {
   public:
     char encoding[14] = "";
@@ -96,9 +99,25 @@ Ticker ticker;
 
 // wlan
 const char *wifi_config_name = "IRBlaster Configuration";
+
+// webserver
 int port = 80;
 ESP8266WebServer server(port);
 bool shouldSaveConfig = false;                                // Flag for saving data
+String javaScript;
+String htmlHeader;
+String htmlFooter;
+
+//mqtt
+const char* mqtt_server = "192.168.1.13";
+WiFiClient espClient;
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
+String prefix = "irblaster";
+String topic = "data";
+char mqttmsg[500] = "";
 
 // ir
 #define TIMEOUT 15U    // capture long ir telegrams, e.g. AC
@@ -114,22 +133,14 @@ String deviceID = "";
 
 //NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
-char* poolServerName = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
-char boottime[20] = ""; 
+char poolServerName[30] = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
+char boottime[20] = "";
 
 const int timeZone = 1;     // Central European Time
 WiFiUDP Udp;
 unsigned int localPort = 8888;  // local port to listen for UDP packets
-
 time_t getNtpTime();
 void sendNTPpacket(IPAddress &address);
-
-
-// Webserver
-String javaScript;
-String htmlHeader;
-String htmlFooter;
-
 
 /*-------- NTP code ----------*/
 
@@ -284,11 +295,11 @@ bool setupWifi(bool resetConf)
           DEBUG_PRINTLN("failed to load json config");
         }
       }
-    } 
+    }
   } else {
     DEBUG_PRINTLN("failed to mount FS");
   }
-  
+
   WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 20);
   wifiManager.addParameter(&custom_hostname);
   WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 20);
@@ -301,7 +312,7 @@ bool setupWifi(bool resetConf)
   // fetches ssid and pass and tries to connect
   // if it does not connect it starts an access point with the specified name
   // and goes into a blocking loop awaiting configuration
-  if (!wifiManager.autoConnect(wifi_config_name)) 
+  if (!wifiManager.autoConnect(wifi_config_name))
   {
     DEBUG_PRINTLN("failed to connect and hit timeout");
     // reset and try again, or maybe put it to deep sleep
@@ -323,7 +334,7 @@ bool setupWifi(bool resetConf)
   Serial.println("WiFi connected! User chose hostname '" + String(host_name) + String("' passcode '") + String(passcode) + "' and port '" + String(port_str) + "'");
 
   // save the custom parameters to FS
-  if (shouldSaveConfig) 
+  if (shouldSaveConfig)
   {
     DEBUG_PRINTLN(" config...");
     DynamicJsonBuffer jsonBuffer;
@@ -352,6 +363,35 @@ bool setupWifi(bool resetConf)
 }
 
 /**************************************************************************
+   connect mqtt server
+**************************************************************************/
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("MQT: Attempting MQTT connection...");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      Serial.println("MQT: connected");
+      // Once connected, publish an announcement...
+      client.publish(String(prefix + "/" + topic).c_str(), String(boottime).c_str());
+      // ... and resubscribe
+      // client.subscribe("inTopic");
+    } else {
+      Serial.print("MQT: failed, rc=");
+      Serial.print(client.state());
+      Serial.println("MQT: try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+
+/**************************************************************************
    Setup web server and IR receiver/blaster
 **************************************************************************/
 void setup()
@@ -366,11 +406,14 @@ void setup()
   if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 20);    //set default hostname when not set!
   if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 30);    //set default ntp server when not set!
     WiFi.hostname(host_name);
-    while (WiFi.status() != WL_CONNECTED) 
+    while (WiFi.status() != WL_CONNECTED)
     {
       delay(500);
       Serial.print(".");
     }
+    randomSeed(micros());   //mqtt random
+    client.setServer(mqtt_server, 1883);
+
 
     wifi_set_sleep_type(LIGHT_SLEEP_T);
     digitalWrite(LED_PIN, LOW);
@@ -380,12 +423,12 @@ void setup()
     // Configure mDNS
     if (MDNS.begin(host_name)) DEBUG_PRINTLN("WEB: mDNS started. Hostname is set to " + String(host_name) + ".local");
     MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
-    
+
     DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
-  
-  
-    if (getTime) 
-    {  
+
+
+    if (getTime)
+    {
       Serial.println("NTP: Starting UDP");
       Udp.begin(localPort);
       Serial.print("NTP: Local port: ");
@@ -395,10 +438,10 @@ void setup()
       setSyncInterval(3600);
       String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
       strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
-    } 
+    }
     else {                  // if NTP is disabled set Dummydate
-      setTime(1514764800);  // 1.1.2018 00:00 
-    }  
+      setTime(1514764800);  // 1.1.2018 00:00
+    }
 
     // Configure the server
     // JSON handler for more complicated IR blaster routines
@@ -475,7 +518,7 @@ void setup()
 
       // enable the receiver
       irrecv.enableIRIn();
-    }); 
+    });
     server.on("/freemem", []() {
       DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
       DEBUG_PRINT(ESP.getFreeSketchSpace());
@@ -512,7 +555,7 @@ void setup()
     server.on("/reset", Handle_ResetWiFi);
 
     server.on("/reboot", Handle_Reboot);
-    
+
     server.on("/", []() {
       DEBUG_PRINTLN("WEB: Connection received: /");
       sendHomePage(); // 200
@@ -532,7 +575,7 @@ void setup()
     irsend.begin();
     irrecv.enableIRIn();
     DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
-    
+
 }
 
 void Handle_config()
@@ -1167,7 +1210,7 @@ void sendHeader(int httpcode)
 
 void buildHeader()
 {
-  
+
   htmlHeader="<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
   htmlHeader+="<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
   htmlHeader+="  <head>\n";
@@ -1271,7 +1314,7 @@ if (type == 1){                                     // save data
 
                             // validate values before saving
   bool validconf = true;
-  if (validconf) 
+  if (validconf)
   {
     DEBUG_PRINTLN("SPI: save config.json...");
     DynamicJsonBuffer jsonBuffer;
@@ -1294,10 +1337,10 @@ if (type == 1){                                     // save data
   }
 
 } else {
-  if (SPIFFS.begin()) 
+  if (SPIFFS.begin())
     {
       DEBUG_PRINTLN("SPI: mounted file system");
-      if (SPIFFS.exists("/config.json")) 
+      if (SPIFFS.exists("/config.json"))
       {
         //file exists, reading and loading
         DEBUG_PRINTLN("SPI: reading config file");
@@ -1442,7 +1485,7 @@ void sendHomePage(String message, String header, int type, int httpcode)
 }
 
 /**************************************************************************
-   Send HTML code page 
+   Send HTML code page
 **************************************************************************/
 void sendCodePage(Code& selCode)
 {
@@ -1512,7 +1555,7 @@ void sendCodePage(Code& selCode, int httpcode)
   htmlData+="     </div>\n";
   htmlData+=buildJavascript();
   htmlData+=htmlFooter;
-  
+
   //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
   server.send(httpcode, "text/html; charset=utf-8", htmlData);
   server.client().stop();
@@ -1537,7 +1580,7 @@ String buildJavascript(){
 **************************************************************************/
 void codeJson(JsonObject &codeData, decode_results *results)
 {
-  if (results->value)  {  
+  if (results->value)  {
       codeData["data"] = Uint64toString(results->value, 16);
       codeData["encoding"] = encoding(results);
       codeData["bits"] = results->bits;
@@ -1560,7 +1603,7 @@ void codeJson(JsonObject &codeData, decode_results *results)
 }
 
 //
-// new convert 
+// new convert
 //
 void copyCode (Code& c1, Code& c2) {
   strncpy(c2.data, c1.data, 8);
@@ -1574,7 +1617,7 @@ void copyCode (Code& c1, Code& c2) {
 }
 
 //
-// new convert 
+// new convert
 //
 void cvrtCode(Code& codeData, decode_results *results)
 {
@@ -1813,11 +1856,11 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
-    
+
       for (unsigned int i = 0; i < raw.size(); i++) {
         int val_temp = raw[i];
         unsigned int val = abs(val_temp);
-         
+
         if (i & 1) irsend.space(val);
         else       irsend.mark(val);
       }
@@ -1931,17 +1974,17 @@ String CreateKVPSystemInfoString()
 
   return result;
 }
-String CreateKVPCommandURLString()    
-{   
-  DEBUG_PRINTLN("KVP: Get KVP command URL string...");   
-  String result;    
-  result = "OK VALUES ";    
-  result += deviceID;   
-  result += " UpdateURL=http://";   
-  result += ipToString(WiFi.localIP()) + ":" + String(port) + "/upload";    
-  result += ",ResetURL=http://";    
-  result += ipToString(WiFi.localIP()) + ":" + String(port) + "/reset";   
-  return result;    
+String CreateKVPCommandURLString()
+{
+  DEBUG_PRINTLN("KVP: Get KVP command URL string...");
+  String result;
+  result = "OK VALUES ";
+  result += deviceID;
+  result += " UpdateURL=http://";
+  result += ipToString(WiFi.localIP()) + ":" + String(port) + "/upload";
+  result += ",ResetURL=http://";
+  result += ipToString(WiFi.localIP()) + ":" + String(port) + "/reset";
+  return result;
 }
 String CreateKVPInitString()
 {
@@ -1954,7 +1997,7 @@ String CreateKVPInitString()
 void sendMultiCast(String msg) {
   DEBUG_PRINT("KVP: Send UPD-Multicast: ");
   DEBUG_PRINTLN(msg);
-  if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1) 
+  if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1)
   {
     WiFiUdp.write(msg.c_str());
     WiFiUdp.endPacket();
@@ -1977,22 +2020,26 @@ void loop() {
     cvrtCode(last_recv, &results);  //error !
 
     // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
-  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
+    strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
     last_recv.valid = true;
-
-    fullCode(&results); 
- 
+    fullCode(&results);
     dumpCode(&results);                                           // Output the results as source code
-    
     //if (last_recv.valid)  Serial.println( last_recv.raw );
     // if (last_recv_2.valid) Serial.println( last_recv_2.raw );
     // if (last_recv_3.valid) Serial.println( last_recv_3.raw );
     // if (last_recv_4.valid) Serial.println( last_recv_4.raw );
     // if (last_recv_5.valid) Serial.println( last_recv_5.raw );
+    String mqtemp = "[{'data':[" + last_recv.raw + "], 'type':'raw', 'khz':38}]";
+    strncpy(mqttmsg, mqtemp.c_str(), 500);
+    client.publish(String(prefix + "/" + topic).c_str(), mqttmsg);
     irrecv.resume();                                              // Prepare for the next value
     digitalWrite(LED_PIN, LOW);                                    // Turn on the LED for 0.5 seconds
     ticker.attach(0.5, disableLed);
     sendKVPCodeString();
+  }
+  client.loop();
+  if (!client.connected()) {
+    reconnect();
   }
 
   if (Serial.available() == true)
