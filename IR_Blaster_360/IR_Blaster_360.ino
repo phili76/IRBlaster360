@@ -1,19 +1,18 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.6                                                           */
+/*     IR_Blaster_360 2.7.4                                                         */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 31.12.2017                                                               */
+/*  Stand: 03.01.2017                                                               */
 /*                                                                                  */
 /*  Bibliotheken:                                                                   */
 /*    ArduinoJson                                                                   */
 /*    NTPClient                                                                     */
 /*    IRremoteESP8266                                                               */
 /*    WiFiManager                                                                   */
-/*    NTPClient                                                                     */
-/*    Time                                                                          */
+/*    TimeLib                                                                       */
 /************************************************************************************/
 
 /**************************************************************************
@@ -31,8 +30,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
-#include <Dns.h>
-#include <NTPClient.h>
+//#include <Dns.h>
 #include <TimeLib.h>
 
 
@@ -46,34 +44,38 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.6";
+const String VERSION       = "v2.7.4";
 
 /**************************************************************************
    Debug
 **************************************************************************/
 #ifdef DEBUG
-#define DEBUG_PRINT(x)  Serial.println (x)
+#define DEBUG_PRINT(x)  Serial.print (x)
+#define DEBUG_PRINTLN(x)  Serial.println (x)
 #else
 #define DEBUG_PRINT(x)
+#define DEBUG_PRINTLN(x)
 #endif
 
 /**************************************************************************
    Variables
 **************************************************************************/
-char passcode[40] = "";
-char host_name[40] = "";
-char port_str[20] = "80";
+// config.json 
+char passcode[20] = "";
+char host_name[20] = "";
+char port_str[5] = "80";
+char ntpserver[30] = "";  
 
 class Code 
 {
   public:
     char encoding[14] = "";
     char address[20] = "";
-    char command[40] = "";
-    char data[40] = "";
+    char command[20] = "";
+    char data[8] = "";
     String raw = "";
     int bits = 0;
-    char timestamp[40] = "";
+    char timestamp[13] = "";
     bool valid = false;
 };
 
@@ -99,7 +101,9 @@ ESP8266WebServer server(port);
 bool shouldSaveConfig = false;                                // Flag for saving data
 
 // ir
-IRrecv irrecv(IR_RECEIVE_PIN);
+#define TIMEOUT 15U    // capture long ir telegrams, e.g. AC
+#define RAWBUF 100U    // larger buffer
+IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
 
 // multicast
@@ -110,20 +114,89 @@ String deviceID = "";
 
 //NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
-const int timeOffset = 3600;                                  // Timezone offset in seconds
-WiFiUDP ntpUDP;
-const char* poolServerName = "europe.pool.ntp.org";
-char boottime[40] = "";                                       // 
-NTPClient timeClient(ntpUDP, poolServerName, timeOffset, 1800000);
+char* poolServerName = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
+char boottime[20] = ""; 
 
-time_t timedate = 0;
+const int timeZone = 1;     // Central European Time
+WiFiUDP Udp;
+unsigned int localPort = 8888;  // local port to listen for UDP packets
+
+time_t getNtpTime();
+void sendNTPpacket(IPAddress &address);
+
+
+// Webserver
+String javaScript;
+String htmlHeader;
+String htmlFooter;
+
+
+/*-------- NTP code ----------*/
+
+const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+
+time_t getNtpTime()
+{
+  IPAddress ntpServerIP; // NTP server's ip address
+
+  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println("NTP: Transmit NTP Request");
+  // get a random server from the pool
+  WiFi.hostByName(ntpserver, ntpServerIP);
+  Serial.print("NTP: ");
+  Serial.print(ntpserver);
+  Serial.print(": ");
+  Serial.println(ntpServerIP);
+  sendNTPpacket(ntpServerIP);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = Udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println("NTP: Receive NTP Response");
+      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+    }
+  }
+  Serial.println("NTP: No NTP Response :-(");
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
 
 /**************************************************************************
    Callback notifying us of the need to save config
 **************************************************************************/
 void saveConfigCallback ()
 {
-  DEBUG_PRINT("Should save config");
+  DEBUG_PRINTLN("Should save config");
   shouldSaveConfig = true;
 }
 
@@ -141,7 +214,7 @@ void tick()
 **************************************************************************/
 void disableLed()
 {
-  DEBUG_PRINT("Turning off the LED to save power.");
+  DEBUG_PRINTLN("SYS: Turning off the LED to save power.");
   digitalWrite(LED_PIN, HIGH);                          // Shut down the LED
   ticker.detach();                                      // Stopping the ticker
 }
@@ -151,10 +224,10 @@ void disableLed()
 **************************************************************************/
 void configModeCallback (WiFiManager *myWiFiManager)
 {
-  DEBUG_PRINT("Entered config mode");
+  DEBUG_PRINTLN("Entered config mode");
   Serial.println(WiFi.softAPIP());
   //if you used auto generated SSID, print it
-  DEBUG_PRINT(myWiFiManager->getConfigPortalSSID());
+  DEBUG_PRINTLN(myWiFiManager->getConfigPortalSSID());
   //entered config mode, make led toggle faster
   ticker.attach(0.2, tick);
 }
@@ -180,16 +253,14 @@ bool setupWifi(bool resetConf)
   // set config save notify callback
   wifiManager.setSaveConfigCallback(saveConfigCallback);
 
-  if (SPIFFS.begin()) 
-  {
-    DEBUG_PRINT("mounted file system");
-    if (SPIFFS.exists("/config.json")) 
-    {
+  if (SPIFFS.begin()) {
+    DEBUG_PRINTLN("mounted file system");
+    if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
-      DEBUG_PRINT("reading config file");
+      ;("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
-        DEBUG_PRINT("opened config file");
+        DEBUG_PRINTLN("opened config file");
         size_t size = configFile.size();
         // Allocate a buffer to store contents of the file.
         std::unique_ptr<char[]> buf(new char[size]);
@@ -199,52 +270,54 @@ bool setupWifi(bool resetConf)
         JsonObject& json = jsonBuffer.parseObject(buf.get());
         json.printTo(Serial);
         if (json.success()) {
-          DEBUG_PRINT("\nparsed json");
+          DEBUG_PRINTLN("\nparsed json");
 
-          if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 40);
-          if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 40);
+          if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 20);
+          if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 20);
           if (json.containsKey("port_str")) {
-            strncpy(port_str, json["port_str"], 20);
-            port = atoi(json["port_str"]);
+            strncpy(port_str, json["port_str"], 5);
           }
+          if (port_str[0] == 0) strncpy(port_str, "80", 5);    //set default hostname when not set!
+          port = atoi(port_str);
+          if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 30);
         } else {
-          DEBUG_PRINT("failed to load json config");
+          DEBUG_PRINTLN("failed to load json config");
         }
       }
-    }
-  } 
-  else 
-  {
-    DEBUG_PRINT("failed to mount FS");
+    } 
+  } else {
+    DEBUG_PRINTLN("failed to mount FS");
   }
   
-  WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 40);
+  WiFiManagerParameter custom_hostname("hostname", "Choose a hostname to this IRBlaster", host_name, 20);
   wifiManager.addParameter(&custom_hostname);
-  WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 40);
+  WiFiManagerParameter custom_passcode("passcode", "Choose a passcode", passcode, 20);
   wifiManager.addParameter(&custom_passcode);
-  WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 40);
+  WiFiManagerParameter custom_port("port_str", "Choose a port", port_str, 5);
   wifiManager.addParameter(&custom_port);
+  WiFiManagerParameter custom_ntpserver("ntpserver", "Choose a ntpserver", ntpserver, 30);
+  wifiManager.addParameter(&custom_ntpserver);
 
   // fetches ssid and pass and tries to connect
   // if it does not connect it starts an access point with the specified name
   // and goes into a blocking loop awaiting configuration
   if (!wifiManager.autoConnect(wifi_config_name)) 
   {
-    DEBUG_PRINT("failed to connect and hit timeout");
+    DEBUG_PRINTLN("failed to connect and hit timeout");
     // reset and try again, or maybe put it to deep sleep
     ESP.reset();
     delay(1000);
   }
 
   // if you get here you have connected to the WiFi
-  strncpy(host_name, custom_hostname.getValue(), 40);
-  strncpy(passcode, custom_passcode.getValue(), 40);
-  strncpy(port_str, custom_port.getValue(), 20);
+  strncpy(host_name, custom_hostname.getValue(), 20);
+  strncpy(passcode, custom_passcode.getValue(), 20);
+  strncpy(port_str, custom_port.getValue(), 5);
+  if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
   port = atoi(port_str);
-
   if (port != 80) {
-    DEBUG_PRINT("Default port changed");
-    server = ESP8266WebServer(port);
+    DEBUG_PRINTLN("Default port changed");
+    // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
   }
 
   Serial.println("WiFi connected! User chose hostname '" + String(host_name) + String("' passcode '") + String(passcode) + "' and port '" + String(port_str) + "'");
@@ -252,20 +325,21 @@ bool setupWifi(bool resetConf)
   // save the custom parameters to FS
   if (shouldSaveConfig) 
   {
-    DEBUG_PRINT(" config...");
+    DEBUG_PRINTLN(" config...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
     json["hostname"] = host_name;
     json["passcode"] = passcode;
     json["port_str"] = port_str;
+    json["ntpserver"] = ntpserver;
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
-      DEBUG_PRINT("failed to open config file for writing");
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
     }
 
     json.printTo(Serial);
-    DEBUG_PRINT("");
+    DEBUG_PRINTLN("");
     json.printTo(configFile);
     configFile.close();
     //e nd save
@@ -284,12 +358,13 @@ void setup()
 {
   // Initialize serial
   Serial.begin(115200);
-  DEBUG_PRINT("");
-  DEBUG_PRINT("ESP8266 IR Controller");
+  DEBUG_PRINTLN("");
+  DEBUG_PRINTLN("ESP8266 IR Controller");
   pinMode(CONFIG_PIN, INPUT_PULLUP);
   if (!setupWifi(digitalRead(CONFIG_PIN) == LOW))
     return;
-  if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 40);    //set default hostname when not set!
+  if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 20);    //set default hostname when not set!
+  if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 30);    //set default ntp server when not set!
     WiFi.hostname(host_name);
     while (WiFi.status() != WL_CONNECTED) 
     {
@@ -303,32 +378,33 @@ void setup()
     ticker.attach(2, disableLed);
 
     // Configure mDNS
-    if (MDNS.begin(host_name)) DEBUG_PRINT("mDNS started. Hostname is set to " + String(host_name) + ".local");
+    if (MDNS.begin(host_name)) DEBUG_PRINTLN("WEB: mDNS started. Hostname is set to " + String(host_name) + ".local");
     MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
     
-    DEBUG_PRINT("URL to send commands: http://" + String(host_name) + ".local:" + port_str);
-
+    DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
+  
+  
     if (getTime) 
-    {
-      timeClient.begin();                                                               // Get the time
-      if (timeClient.update()) 
-      {
-        setTime(timeClient.getEpochTime());
-        String boottimetemp = String(hour()) + ":" + String(minute()) + " " + String(day()) + "." + String(month()) + "." + String(year());
-//        strncpy(boottime, String(timeClient.getFormattedTime()).c_str(), 40);           // If we got time set boottime
-        strncpy(boottime, boottimetemp.c_str(), 40);           // If we got time set boottime
-      }
-      else
-      { 
-        getTime = false;                                                             // deactivate if error occours
-      }  
+    {  
+      Serial.println("NTP: Starting UDP");
+      Udp.begin(localPort);
+      Serial.print("NTP: Local port: ");
+      Serial.println(Udp.localPort());
+      Serial.println("NTP: waiting for sync");
+      setSyncProvider(getNtpTime);
+      setSyncInterval(3600);
+      String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
+      strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
+    } 
+    else {                  // if NTP is disabled set Dummydate
+      setTime(1514764800);  // 1.1.2018 00:00 
     }  
 
     // Configure the server
     // JSON handler for more complicated IR blaster routines
     server.on("/json", []()
     {
-      DEBUG_PRINT("Connection received - JSON");
+      DEBUG_PRINTLN("WEB: Connection received - JSON");
 
       // disable the receiver
       irrecv.disableIRIn();
@@ -338,14 +414,14 @@ void setup()
 
       if (!root.success())
       {
-        DEBUG_PRINT("JSON parsing failed");
+        DEBUG_PRINTLN("JSO: JSON parsing failed");
 
         // http response
         server.send(400, "text/html", "JSON parsing failed");
       }
       else if (server.arg("pass") != passcode)
       {
-        DEBUG_PRINT("Unauthorized access");
+        DEBUG_PRINTLN("WEB: Unauthorized access");
 
         // http response
         server.send(401, "text/html", "Invalid passcode");
@@ -391,7 +467,7 @@ void setup()
 
           if (x + 1 < root.size())
           {
-            DEBUG_PRINT("wait between two commands");
+            DEBUG_PRINTLN("IR : wait between two commands");
             delay(cdelay);
           }
         }
@@ -399,10 +475,16 @@ void setup()
 
       // enable the receiver
       irrecv.enableIRIn();
+    }); 
+    server.on("/freemem", []() {
+      DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
+      DEBUG_PRINT(ESP.getFreeSketchSpace());
+      server.sendHeader("Connection", "close");
+      server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
     });
 
     server.on("/received", []() {
-      DEBUG_PRINT("Connection received: /received");
+      DEBUG_PRINTLN("WEB: Connection received: /received");
       int id = server.arg("id").toInt();
       String output;
       if (id == 1 && last_recv.valid) {
@@ -432,12 +514,12 @@ void setup()
     server.on("/reboot", Handle_Reboot);
     
     server.on("/", []() {
-      DEBUG_PRINT("Connection received: /");
+      DEBUG_PRINTLN("WEB: Connection received: /");
       sendHomePage(); // 200
     });
 
     server.begin();
-    DEBUG_PRINT("HTTP Server started on port " + String(port));
+    DEBUG_PRINTLN("WEB: HTTP Server started on port " + String(port));
 
     // create unique DeviceID and send key value information
     deviceID = "IR_Blaster " + GetChipID();
@@ -449,75 +531,89 @@ void setup()
     // initialize the IR interface
     irsend.begin();
     irrecv.enableIRIn();
-    DEBUG_PRINT("Ready to send and receive IR signals");
+    DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
     
-  }
-  void Handle_config()
-  {
-    DEBUG_PRINT("Connection received - /config");
-    sendConfigPage();  //todo
-  }
-
-  void Handle_Reboot(){
-    ESP.restart();
-  }
-
-  void Handle_ResetWiFi()
-  {
-    DEBUG_PRINT("Reset WiFi settings and reboot gateway");
-    // define WiFiManager instance
-    WiFiManager wifiManager;
-
-    // perform reset of WiFi setting
-    wifiManager.resetSettings();
-
-    // restart ESP
-    ESP.restart();
-
-    // wait some time
-    delay(1000);
 }
+
+void Handle_config()
+{
+  if (server.method() == HTTP_GET){
+    DEBUG_PRINTLN("WEB: Connection received - /config");
+    sendConfigPage();
+  } else {
+    DEBUG_PRINTLN("WEB: Connection received - /config (save)");
+    sendConfigPage("Settings saved successfully!", "Success!", 1);
+    }
+}
+
+
+void Handle_Reboot(){
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/html", F("<body>Reboot OK, redirect in <b id='count'>3</b></body><script>var counter = 3;setInterval(function() {counter--;if(counter < 1) {window.location = '/';} else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
+  delay(500);
+  ESP.restart();
+}
+
+void Handle_ResetWiFi()
+{
+  DEBUG_PRINTLN("SYS: Reset WiFi settings and reboot gateway");
+  // define WiFiManager instance
+  WiFiManager wifiManager;
+
+  // perform reset of WiFi setting
+  wifiManager.resetSettings();
+
+  // restart ESP
+  ESP.restart();
+
+  // wait some time
+  delay(1000);
+}
+
 /**************************************************************************
    Over the air update
 **************************************************************************/
 void FlashESP()
 {
-  HTTPUpload& upload = server.upload();
-  if (upload.status == UPLOAD_FILE_START)
-  {
-    Serial.setDebugOutput(false);
-    WiFiUDP::stopAll();
-    Serial.printf("Update: %s\n", upload.filename.c_str());
-    uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-    //start with max available size
-    if (!Update.begin(maxSketchSpace))
-    {
 
-      Update.printError(Serial);
-    }
-  }
-  else if (upload.status == UPLOAD_FILE_WRITE)
-  {
-    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+  HTTPUpload& upload = server.upload();
+  if (!(upload.filename[0] == 0)){
+    if (upload.status == UPLOAD_FILE_START)
     {
-      Update.printError(Serial);
+      Serial.setDebugOutput(false);
+      WiFiUDP::stopAll();
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+      //start with max available size
+      if (!Update.begin(maxSketchSpace))
+      {
+        Update.printError(Serial);
+      }
     }
-  }
-  else if (upload.status == UPLOAD_FILE_END)
-  {
-    //true to set the size to the current progress
-    if (Update.end(true))
+    else if (upload.status == UPLOAD_FILE_WRITE)
     {
-      Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+      {
+        Update.printError(Serial);
+      }
     }
-    else
+    else if (upload.status == UPLOAD_FILE_END)
     {
-      Update.printError(Serial);
+      //true to set the size to the current progress
+      if (Update.end(true))
+      {
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      }
+      else
+      {
+        Update.printError(Serial);
+      }
+      Serial.setDebugOutput(false);
     }
-    Serial.setDebugOutput(false);
+    yield();
   }
-  yield();
 }
+
 void Handle_Style()
 {
   server.sendHeader("Connection", "close");
@@ -529,8 +625,10 @@ void Handle_upload()
   server.sendHeader("Connection", "close");
   server.send(200, "text/html", GetUploadHTML());
 }
+
 void Handle_update()
 {
+  DEBUG_PRINTLN("handle_update call");
   server.sendHeader("Connection", "close");
   server.sendHeader("Access-Control-Allow-Origin", "*");
   bool error = Update.hasError();
@@ -538,6 +636,8 @@ void Handle_update()
 
   if (!error)
   {
+    DEBUG_PRINTLN("reboot call");
+    delay(500);  // problem with ajax response before reboot
     ESP.restart();
   }
 }
@@ -872,6 +972,26 @@ String GetStyle()
 }
 
 /**************************************************************************
+   add leading zeros if under 10
+**************************************************************************/
+
+String printDigits2(int digits) { // 2 digits
+  String s="";
+  (digits < 10) ? s = "0" + String(digits): s = String(digits);
+  return s;
+}
+/**************************************************************************
+   add leading zeros if under 10
+**************************************************************************/
+
+String printDigits3(long digits) { // 3 digits
+  String s="";
+  (digits < 10) ? s = "00" + String(digits): ((digits < 100) ? s = "0" + String(digits): s = String(digits));
+  return s;
+}
+
+
+/**************************************************************************
    IP Address to String
 **************************************************************************/
 String ipToString(IPAddress ip)
@@ -890,19 +1010,22 @@ int rokuCommand(String ip, String data)
   HTTPClient http;
   String url = "http://" + ip + ":8060/" + data;
   http.begin(url);
-  DEBUG_PRINT(url);
-  DEBUG_PRINT("Sending roku command");
+  DEBUG_PRINT("IR : ");
+  DEBUG_PRINTLN(url);
+  DEBUG_PRINTLN("IR : Sending roku command");
 
   copyCode(last_send_4, last_send_5);
   copyCode(last_send_3, last_send_4);
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, data.c_str(), 40);
+  strncpy(last_send.data, data.c_str(), 8);
   last_send.bits = 1;
   strncpy(last_send.encoding, "roku", 20);
-  strncpy(last_send.address, ip.c_str(), 40);
-  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.address, ip.c_str(), 20);
+
+//  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3((millis() % 1000))).c_str(), 13);
   last_send.valid = true;
 
   return http.POST("");
@@ -988,14 +1111,14 @@ String Uint64toString(uint64_t input, uint8_t base)
 **************************************************************************/
 void fullCode (decode_results *results)
 {
-  Serial.print("One line: ");
+  Serial.print("IR : One line: ");
   serialPrintUint64(results->value, 16);
   Serial.print(":");
   Serial.print(encoding(results));
   Serial.print(":");
   Serial.print(results->bits, DEC);
   if (results->overflow)
-    Serial.println("WARNING: IR code too long."
+    Serial.println(" WARNING: IR code too long."
                    "Edit IRrecv.h and increase RAWBUF");
   Serial.println("");
 }
@@ -1033,9 +1156,46 @@ void sendHeader(int httpcode)
   server.sendContent("              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n");
   server.sendContent("            <li class='active'>\n");
   server.sendContent("              <a href='/config'>Config</a></li>\n");
+  server.sendContent("            <li class='active'>\n");
+  server.sendContent("              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n");
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
+
+
+}
+
+void buildHeader()
+{
+  
+  htmlHeader="<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
+  htmlHeader+="<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
+  htmlHeader+="  <head>\n";
+  htmlHeader+="    <meta name='viewport' content='width=device-width, initial-scale=.75' />\n";
+  htmlHeader+="    <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css' />\n";
+  htmlHeader+="    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n";
+  htmlHeader+="    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n";
+  htmlHeader+="  </head>\n";
+  htmlHeader+="  <body>\n";
+  htmlHeader+="    <div class='container'>\n";
+  htmlHeader+="      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n";
+  htmlHeader+="      <div class='row'>\n";
+  htmlHeader+="        <div class='col-md-12'>\n";
+  htmlHeader+="          <ul class='nav nav-pills'>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='http://" + String(host_name) + ".local" + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ".local" + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='/config'>Config</a></li>\n";
+  htmlHeader+="            <li class='active'>\n";
+  htmlHeader+="              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n";
+  htmlHeader+="          </ul>\n";
+  htmlHeader+="        </div>\n";
+  htmlHeader+="      </div><hr />\n";
+
 }
 
 /**************************************************************************
@@ -1051,7 +1211,20 @@ void sendFooter()
 }
 
 /**************************************************************************
+   Build HTML footer
+**************************************************************************/
+void buildFooter()
+{
+  htmlFooter="      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n";
+  htmlFooter+="    </div>\n";
+  htmlFooter+="  </body>\n";
+  htmlFooter+="</html>\n";
+}
+
+/**************************************************************************
    Send HTML Config page
+   type 1 save config
+
 **************************************************************************/
 void sendConfigPage()
 {
@@ -1067,105 +1240,137 @@ void sendConfigPage(String message, String header, int type)
 }
 void sendConfigPage(String message, String header, int type, int httpcode)
 {
-char passcode_conf[40] = "";
-char host_name_conf[40] = "";
-char port_str_conf[20] = "";
+char passcode_conf[20] = "";
+char host_name_conf[20] = "";
+char port_str_conf[5] = "";
+char ntpserver_conf[30] = "";
 
-if (SPIFFS.begin()) 
+//
+// todo
+//
+// config timezone
+// config DST (Sommer-Winter)
+// NTP enabled?
+//
+
+if (type == 1){                                     // save data
+  String message = "WEB: Number of args received:";
+  message += String(server.args()) + "\n";
+  for (int i = 0; i < server.args(); i++) {
+    message += "Arg " + (String)i + " –> ";
+    message += server.argName(i) + ":" ;
+    message += server.arg(i) + "\n";
+  }
+  if (server.hasArg("getTime")) {getTime = true;} else {getTime = false;}
+  strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 20);
+  strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 20);
+  strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
+  strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 30);
+
+  DEBUG_PRINTLN(message);
+
+                            // validate values before saving
+  bool validconf = true;
+  if (validconf) 
   {
-    DEBUG_PRINT("mounted file system");
-    if (SPIFFS.exists("/config.json")) 
+    DEBUG_PRINTLN("SPI: save config.json...");
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["hostname"] = String(host_name_conf);
+    json["passcode"] = String(passcode_conf);
+    json["port_str"] = String(port_str_conf);
+    json["ntpserver"] = String(ntpserver_conf);
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      DEBUG_PRINTLN("SPI: failed to open config file for writing");
+    }
+
+    json.printTo(Serial);
+    DEBUG_PRINTLN("");
+    json.printTo(configFile);
+    configFile.close();
+    //end save
+  }
+
+} else {
+  if (SPIFFS.begin()) 
     {
-      //file exists, reading and loading
-      DEBUG_PRINT("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        DEBUG_PRINT("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+      DEBUG_PRINTLN("SPI: mounted file system");
+      if (SPIFFS.exists("/config.json")) 
+      {
+        //file exists, reading and loading
+        DEBUG_PRINTLN("SPI: reading config file");
+        File configFile = SPIFFS.open("/config.json", "r");
+        if (configFile) {
+          DEBUG_PRINTLN("SPI: opened config file");
+          size_t size = configFile.size();
+          // Allocate a buffer to store contents of the file.
+          std::unique_ptr<char[]> buf(new char[size]);
 
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject(buf.get());
-        json.printTo(Serial);
-        if (json.success()) {
-          DEBUG_PRINT("\nparsed json");
+          configFile.readBytes(buf.get(), size);
+          DynamicJsonBuffer jsonBuffer;
+          JsonObject& json = jsonBuffer.parseObject(buf.get());
+          Serial.print("JSO: ");
+          json.printTo(Serial);
+          if (json.success()) {
+            DEBUG_PRINTLN("\nJSO: parsed json");
 
-          if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 40);
-          if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 40);
-          if (json.containsKey("port_str")) {
-            strncpy(port_str_conf, json["port_str"], 20);
+            if (json.containsKey("hostname")) strncpy(host_name_conf, json["hostname"], 20);
+            if (json.containsKey("passcode")) strncpy(passcode_conf, json["passcode"], 20);
+            if (json.containsKey("port_str")) {
+              strncpy(port_str_conf, json["port_str"], 5);
+            }
+            if (port_str_conf[0] == 0) strncpy(port_str_conf, "80", 5) ;    //set default port when not set!
+            if (json.containsKey("ntpserver")) strncpy(ntpserver_conf, json["ntpserver"], 30);
+
+          } else {
+            DEBUG_PRINTLN("JSO: failed to load json config");
           }
-        } else {
-          DEBUG_PRINT("failed to load json config");
         }
       }
+    } else {
+      DEBUG_PRINTLN("SPI: failed to mount FS");
     }
-  } 
-  else 
-  {
-    DEBUG_PRINT("failed to mount FS");
   }
 
 
-  sendHeader(httpcode);
+  String htmlDataconf;
+  buildHeader();  // httpcode later was parameter htmlHeader
+  //buildJavascript();  //                          javaScript
+  buildFooter();      //                          htmlFooter
+
+  htmlDataconf=htmlHeader;
+
+  //sendHeader(httpcode);
   if (type == 1)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 2)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 3)
-    server.sendContent("      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <h3>Config</h3>\n");
-  server.sendContent("          <table class='table table-striped' style='table-layout: fixed;'>\n");
-  server.sendContent("            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"); //Title
-  server.sendContent("            <tbody>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + String(getTime) + "</code></td><td><input type='checkbox' id='ntpok' name='getTime' value='" + String(getTime) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + String(poolServerName) + "</code></td><td><input type='text' id='ntpserver' name='ntpserver' value='" + String(poolServerName) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Hostname</td><td><code>" + String(host_name_conf) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n");
-  server.sendContent("            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' value='" + String(port_str_conf) + "'></td></tr>\n");
+    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
+  htmlDataconf+="      <div class='row'>\n";
+  htmlDataconf+="<form method='post' action='/config'>";
+  htmlDataconf+="        <div class='col-md-12'>\n";
+  htmlDataconf+="          <h3>Config</h3>\n";
+  htmlDataconf+="          <table class='table table-striped' style='table-layout: fixed;'>\n";
+  htmlDataconf+="            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
+  htmlDataconf+="            <tbody>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + ((host_name_conf[0] == 0 ) ? String("(" + String(host_name) + ")") : String(host_name_conf)) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td></td></tr>\n"; //<input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'>
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + ((ntpserver_conf[0] == 0 ) ? String("(" + String(poolServerName) + ")") : String(ntpserver_conf)) + "</code></td><td><input type='text' id='ntpserver_conf' name='ntpserver_conf' value='" + String(ntpserver_conf) + "'></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
+  htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
+  htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
+  htmlDataconf+="            </tbody></table>\n";
+  htmlDataconf+="          </div></div>\n";
+  htmlDataconf+=htmlFooter;
 
+  server.send(httpcode, "text/html; charset=utf-8", htmlDataconf);
+  server.client().stop();
 
-  /*if (last_send.valid)
-    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send.timestamp) + "</td><td><code>" + String(last_send.data) + "</code></td><td><code>" + String(last_send.encoding) + "</code></td><td><code>" + String(last_send.bits) + "</code></td><td><code>" + String(last_send.address) + "</code></td></tr>\n");
-  if (last_send_2.valid)
-    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_2.timestamp) + "</td><td><code>" + String(last_send_2.data) + "</code></td><td><code>" + String(last_send_2.encoding) + "</code></td><td><code>" + String(last_send_2.bits) + "</code></td><td><code>" + String(last_send_2.address) + "</code></td></tr>\n");
-  if (last_send_3.valid)
-    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_3.timestamp) + "</td><td><code>" + String(last_send_3.data) + "</code></td><td><code>" + String(last_send_3.encoding) + "</code></td><td><code>" + String(last_send_3.bits) + "</code></td><td><code>" + String(last_send_3.address) + "</code></td></tr>\n");
-  if (last_send_4.valid)
-    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_4.timestamp) + "</td><td><code>" + String(last_send_4.data) + "</code></td><td><code>" + String(last_send_4.encoding) + "</code></td><td><code>" + String(last_send_4.bits) + "</code></td><td><code>" + String(last_send_4.address) + "</code></td></tr>\n");
-  if (last_send_5.valid)
-    server.sendContent("              <tr class='text-uppercase'><td>" + String(last_send_5.timestamp) + "</td><td><code>" + String(last_send_5.data) + "</code></td><td><code>" + String(last_send_5.encoding) + "</code></td><td><code>" + String(last_send_5.bits) + "</code></td><td><code>" + String(last_send_5.address) + "</code></td></tr>\n");
-  if (!last_send.valid && !last_send_2.valid && !last_send_3.valid && !last_send_4.valid && !last_send_5.valid)
-    server.sendContent("              <tr><td colspan='5' class='text-center'><em>No codes sent</em></td></tr>");
-  server.sendContent("            </tbody></table>\n");
-  server.sendContent("          </div></div>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <h3>Codes Received</h3>\n");
-  server.sendContent("          <table class='table table-striped' style='table-layout: fixed;'>\n");
-  server.sendContent("            <thead><tr><th>Details</th><th>Command</th><th>Type</th><th>Length</th><th>Address</th></tr></thead>\n"); //Title
-  server.sendContent("            <tbody>\n");
-  if (last_recv.valid)
-    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=1'>" + String(last_recv.timestamp) + "</a></td><td><code>" + String(last_recv.data) + "</code></td><td><code>" + String(last_recv.encoding) + "</code></td><td><code>" + String(last_recv.bits) + "</code></td><td><code>" + String(last_recv.address) + "</code></td></tr>\n");
-  if (last_recv_2.valid)
-    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=2'>" + String(last_recv_2.timestamp) + "</a></td><td><code>" + String(last_recv_2.data) + "</code></td><td><code>" + String(last_recv_2.encoding) + "</code></td><td><code>" + String(last_recv_2.bits) + "</code></td><td><code>" + String(last_recv_2.address) + "</code></td></tr>\n");
-  if (last_recv_3.valid)
-    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=3'>" + String(last_recv_3.timestamp) + "</a></td><td><code>" + String(last_recv_3.data) + "</code></td><td><code>" + String(last_recv_3.encoding) + "</code></td><td><code>" + String(last_recv_3.bits) + "</code></td><td><code>" + String(last_recv_3.address) + "</code></td></tr>\n");
-  if (last_recv_4.valid)
-    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=4'>" + String(last_recv_4.timestamp) + "</a></td><td><code>" + String(last_recv_4.data) + "</code></td><td><code>" + String(last_recv_4.encoding) + "</code></td><td><code>" + String(last_recv_4.bits) + "</code></td><td><code>" + String(last_recv_4.address) + "</code></td></tr>\n");
-  if (last_recv_5.valid)
-    server.sendContent("              <tr class='text-uppercase'><td><a href='/received?id=5'>" + String(last_recv_5.timestamp) + "</a></td><td><code>" + String(last_recv_5.data) + "</code></td><td><code>" + String(last_recv_5.encoding) + "</code></td><td><code>" + String(last_recv_5.bits) + "</code></td><td><code>" + String(last_recv_5.address) + "</code></td></tr>\n");
-  if (!last_recv.valid && !last_recv_2.valid && !last_recv_3.valid && !last_recv_4.valid && !last_recv_5.valid)*/
-
-
-  server.sendContent(" <tr><td colspan='5' class='text-center'><em><button type='submit' class='btn btn-sm btn-info'>Save</button>  <a href='/' class='btn btn-sm btn-warning'>Cancel</a>  <a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a></em></td></tr>");
-  server.sendContent("            </tbody></table>\n");
-  server.sendContent("          </div></div>\n");
-  sendFooter();
 }
 
 
@@ -1237,7 +1442,7 @@ void sendHomePage(String message, String header, int type, int httpcode)
 }
 
 /**************************************************************************
-   Send HTML code page
+   Send HTML code page 
 **************************************************************************/
 void sendCodePage(Code& selCode)
 {
@@ -1245,57 +1450,86 @@ void sendCodePage(Code& selCode)
 }
 void sendCodePage(Code& selCode, int httpcode)
 {
-  sendHeader(httpcode);
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Data</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Type</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Length</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Address</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n");
-  server.sendContent("          <dl class='dl-horizontal'>\n");
-  server.sendContent("            <dt>Raw</dt>\n");
-  server.sendContent("            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n");
-  server.sendContent("        </div></div>\n");
-  server.sendContent("      <div class='row'>\n");
-  server.sendContent("        <div class='col-md-12'>\n");
-  server.sendContent("          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n");
-  server.sendContent("      </div></div>\n");
+  String htmlData;
+  buildHeader();  // httpcode later was parameter htmlHeader
+  //buildJavascript();  //                          javaScript
+  buildFooter();      //                          htmlFooter
+
+  htmlData=htmlHeader;
+
+  htmlData+="      <div class='row'>\n";
+  htmlData+="        <div class='col-md-12'>\n";
+  htmlData+="          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Data</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Type</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Length</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Address</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Raw</dt>\n";
+  htmlData+="            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n";
+  htmlData+="          <dl class='dl-horizontal'>\n";
+  htmlData+="            <dt>Rawgraph</dt>\n";
+  htmlData+="         <dd><canvas id='myCanvas' width='100' height='100' style='border:1px solid #d3d3d3;>Your browser does not support the canvas element.</canvas></dd></dl>\n";
+  htmlData+="        </div></div>\n";
+  htmlData+="      <div class='row'>\n";
+  htmlData+="        <div class='col-md-12'>\n";
+  htmlData+="          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n";
+  htmlData+="            <input id='data' type='text' name='data' hidden value='" + String(selCode.raw) + "'>\n";
+  htmlData+="      </div></div>\n";
 
   if (String(selCode.encoding) == "UNKNOWN")
   {
-    server.sendContent("      <div class='row'>\n");
-    server.sendContent("        <div class='col-md-12'>\n");
-    server.sendContent("          <ul class='list-unstyled'>\n");
-    server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]\">http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</a></pre></li>\n");
-    server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':[" + String(selCode.raw) + "], 'type':'raw', 'khz':38}]</pre></li>\n");
-    server.sendContent("          </ul>\n");
+    htmlData+="      <div class='row'>\n";
+    htmlData+="        <div class='col-md-12'>\n";
+    htmlData+="          <ul class='list-unstyled'>\n";
+    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</pre></li>\n";
+    htmlData+="          </ul>\n";
   }
   else
   {
-    server.sendContent("      <div class='row'>\n");
-    server.sendContent("        <div class='col-md-12'>\n");
-    server.sendContent("          <ul class='list-unstyled'>\n");
-    server.sendContent("            <li>Hostname <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre><a href=\"http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]\"> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</a></pre></li>\n");
-    server.sendContent("            <li>Local IP <span class='label label-default'>JSON</span></li>\n");
-    server.sendContent("            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{'data':'" + String(selCode.data) + "', 'type':'" + String(selCode.encoding) + "', 'length':" + String(selCode.bits) + "}]</pre></li>\n");
-    server.sendContent("          </ul>\n");
+    htmlData+="      <div class='row'>\n";
+    htmlData+="        <div class='col-md-12'>\n";
+    htmlData+="          <ul class='list-unstyled'>\n";
+    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]'> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
+    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</pre></li>\n";
+    htmlData+="          </ul>\n";
   }
 
-  server.sendContent("        </div>\n");
-  server.sendContent("     </div>\n");
-  sendFooter();
+  htmlData+="        </div>\n";
+  htmlData+="     </div>\n";
+  htmlData+=buildJavascript();
+  htmlData+=htmlFooter;
+  
+  //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
+  server.send(httpcode, "text/html; charset=utf-8", htmlData);
+  server.client().stop();
+}
+
+String buildJavascript(){
+
+  return F("<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
+  "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
+  "var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "
+  "last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);"
+  "ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); ctx.stroke(); "
+  "for (i = 0;i < dlen;i++){ if (i % 2 === 0){ ctx.moveTo(last,highpos); last += (data[i]); ctx.lineTo(last,highpos); "
+  "ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); "
+  " ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; "
+  "ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; "
+  "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } </script>");
 }
 
 /**************************************************************************
@@ -1329,11 +1563,11 @@ void codeJson(JsonObject &codeData, decode_results *results)
 // new convert 
 //
 void copyCode (Code& c1, Code& c2) {
-  strncpy(c2.data, c1.data, 40);
+  strncpy(c2.data, c1.data, 8);
   strncpy(c2.encoding, c1.encoding, 20);
-  strncpy(c2.timestamp, c1.timestamp, 40);
-  strncpy(c2.address, c1.address, 40);
-  strncpy(c2.command, c1.command, 40);
+  strncpy(c2.timestamp, c1.timestamp, 13);
+  strncpy(c2.address, c1.address, 20);
+  strncpy(c2.command, c1.command, 20);
   c2.bits = c1.bits;
   c2.raw = c1.raw;
   c2.valid = c1.valid;
@@ -1344,7 +1578,7 @@ void copyCode (Code& c1, Code& c2) {
 //
 void cvrtCode(Code& codeData, decode_results *results)
 {
-  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 40);
+  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 8);
   strncpy(codeData.encoding, encoding(results).c_str(), 20);
   codeData.bits = results->bits;
   String r = "";
@@ -1356,11 +1590,11 @@ void cvrtCode(Code& codeData, decode_results *results)
     }
   codeData.raw = r;
   if (results->decode_type != UNKNOWN) {
-    strncpy(codeData.address, ("0x" + String(results->address, HEX)).c_str(), 40);
-    strncpy(codeData.command, ("0x" + String(results->command, HEX)).c_str(), 40);
+    strncpy(codeData.address, ("0x" + String(results->address, HEX)).c_str(), 20);
+    strncpy(codeData.command, ("0x" + String(results->command, HEX)).c_str(), 20);
   } else {
-    strncpy(codeData.address, "0x0", 40);
-    strncpy(codeData.command, "0x0", 40);
+    strncpy(codeData.address, "0x0", 20);
+    strncpy(codeData.command, "0x0", 20);
   }
 }
 
@@ -1419,7 +1653,7 @@ void dumpRaw(decode_results *results)
 void dumpCode(decode_results *results)
 {
   // Start declaration
-  Serial.print("uint16_t  ");              // variable type
+  Serial.print("IR : uint16_t  ");              // variable type
   Serial.print("rawData[");                // array name
   Serial.print(results->rawlen - 1, DEC);  // array size
   Serial.print("] = {");                   // Start declaration
@@ -1450,16 +1684,16 @@ void dumpCode(decode_results *results)
     // NOTE: It will ignore the atypical case when a message has been decoded
     // but the address & the command are both 0.
     if (results->address > 0 || results->command > 0) {
-      Serial.print("uint32_t  address = 0x");
+      Serial.print("IR : uint32_t  address = 0x");
       Serial.print(results->address, HEX);
       Serial.println(";");
-      Serial.print("uint32_t  command = 0x");
+      Serial.print("IR : uint32_t  command = 0x");
       Serial.print(results->command, HEX);
       Serial.println(";");
     }
 
     // All protocols have data
-    Serial.print("uint64_t  data = 0x");
+    Serial.print("IR : uint64_t  data = 0x");
     serialPrintUint64(results->value, 16);
     Serial.println(";");
   }
@@ -1497,7 +1731,7 @@ unsigned long HexToLongInt(String h)
 **************************************************************************/
 void irblast(String type, String dataStr, unsigned int len, int rdelay, int pulse, int pdelay, int repeat, long address)
 {
-  DEBUG_PRINT("Blasting off");
+  DEBUG_PRINTLN("IR : Blasting off");
   type.toLowerCase();
   unsigned long data = HexToLongInt(dataStr);
   // Repeat Loop
@@ -1557,24 +1791,25 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, dataStr.c_str(), 40);
+  strncpy(last_send.data, dataStr.c_str(), 8);
   last_send.bits = len;
   strncpy(last_send.encoding, type.c_str(), 20);
   strncpy(last_send.address, ("0x" + String(address, HEX)).c_str(), 20);
-  strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  // strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
   last_send.valid = true;
 
 
 }
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
-  DEBUG_PRINT("Raw transmit");
+  DEBUG_PRINTLN("IR : Raw transmit");
 
   // Repeat Loop
   for (int r = 0; r < repeat; r++) {
     // Pulse Loop
     for (int p = 0; p < pulse; p++) {
-      DEBUG_PRINT("Sending code");
+      DEBUG_PRINTLN("IR : Sending code");
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
@@ -1607,18 +1842,19 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, "", 40);
+  strncpy(last_send.data, "", 8);
   last_send.bits = raw.size();
   strncpy(last_send.encoding, "RAW", 20);
-  strncpy(last_send.address, "0x0", 40);
-  strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.address, "0x0", 20);
+  //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  strncpy(last_send.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
   last_send.valid = true;
 
 }
 void roomba_send(int code, int pulse, int pdelay)
 {
-  DEBUG_PRINT("Sending Roomba code");
-  DEBUG_PRINT(code);
+  DEBUG_PRINTLN("IR : Sending Roomba code");
+  DEBUG_PRINTLN(code);
 
   int length = 8;
   uint16_t raw[length * 2];
@@ -1679,7 +1915,7 @@ void sendCodeReceivedString(Code& data, int number)
 
 String CreateKVPSystemInfoString()
 {
-  DEBUG_PRINT("Get KVP system information string...");
+  DEBUG_PRINTLN("KVP: Get KVP system information string...");
   String result;
 
   result = "OK VALUES ";
@@ -1697,7 +1933,7 @@ String CreateKVPSystemInfoString()
 }
 String CreateKVPCommandURLString()    
 {   
-  DEBUG_PRINT("Get KVP command URL string...");   
+  DEBUG_PRINTLN("KVP: Get KVP command URL string...");   
   String result;    
   result = "OK VALUES ";    
   result += deviceID;   
@@ -1709,15 +1945,15 @@ String CreateKVPCommandURLString()
 }
 String CreateKVPInitString()
 {
-  DEBUG_PRINT("Create KVP init string...");
+  DEBUG_PRINTLN("KVP: Create KVP init string...");
   String result;
   result = "OK VALUES ";
   result += deviceID;
   return result;
 }
 void sendMultiCast(String msg) {
-  DEBUG_PRINT("Send UPD-Multicast: ");
-  DEBUG_PRINT(msg);
+  DEBUG_PRINT("KVP: Send UPD-Multicast: ");
+  DEBUG_PRINTLN(msg);
   if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1) 
   {
     WiFiUdp.write(msg.c_str());
@@ -1732,29 +1968,27 @@ void sendMultiCast(String msg) {
 void loop() {
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
-  timeClient.update();                // update only after 
-
-
-
   if (irrecv.decode(&results)) {                                  // Grab an IR code
-    Serial.println("Signal received:");
-    
+    Serial.print("IR  : Signal received: ");
     copyCode(last_recv_4,last_recv_5);
     copyCode(last_recv_3,last_recv_4);
     copyCode(last_recv_2,last_recv_3);
     copyCode(last_recv,last_recv_2);
-    cvrtCode(last_recv, &results);
-    strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
+    cvrtCode(last_recv, &results);  //error !
+
+    // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
+  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
     last_recv.valid = true;
-    
+
     fullCode(&results); 
+ 
     dumpCode(&results);                                           // Output the results as source code
     
-    if (last_recv.valid)  Serial.println( last_recv.raw );
-    if (last_recv_2.valid) Serial.println( last_recv_2.raw );
-    if (last_recv_3.valid) Serial.println( last_recv_3.raw );
-    if (last_recv_4.valid) Serial.println( last_recv_4.raw );
-    if (last_recv_5.valid) Serial.println( last_recv_5.raw );
+    //if (last_recv.valid)  Serial.println( last_recv.raw );
+    // if (last_recv_2.valid) Serial.println( last_recv_2.raw );
+    // if (last_recv_3.valid) Serial.println( last_recv_3.raw );
+    // if (last_recv_4.valid) Serial.println( last_recv_4.raw );
+    // if (last_recv_5.valid) Serial.println( last_recv_5.raw );
     irrecv.resume();                                              // Prepare for the next value
     digitalWrite(LED_PIN, LOW);                                    // Turn on the LED for 0.5 seconds
     ticker.attach(0.5, disableLed);
@@ -1764,8 +1998,10 @@ void loop() {
   if (Serial.available() == true)
   {
     String command = Serial.readString();
-    DEBUG_PRINT(command);
+    DEBUG_PRINTLN(command);
 
     if (command == "reset") Handle_ResetWiFi();
   }
+    yield();
+    now();
 }
