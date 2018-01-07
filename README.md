@@ -1,4 +1,4 @@
-# IRBlaster360
+# IRBlaster360 [![Build Status](https://travis-ci.org/phili76/IRBlaster360.svg?branch=platformio_prep)](https://travis-ci.org/phili76/IRBlaster360)
 
 ESP8266 IR Blaster with FHEM Integration
 [Link to FHEM forum thread](https://forum.fhem.de/index.php/topic,72950.0.html)
