@@ -1502,9 +1502,9 @@ void sendCodePage(Code& selCode, int httpcode)
     htmlData+="        <div class='col-md-12'>\n";
     htmlData+="          <ul class='list-unstyled'>\n";
     htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]'> http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
     htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\", \"type\":\"" + String(selCode.encoding) + "\", \"length\":" + String(selCode.bits) + "}]</pre></li>\n";
+    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
     htmlData+="          </ul>\n";
   }
 
