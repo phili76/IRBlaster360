@@ -1,6 +1,6 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.5                                                         */
+/*     IR_Blaster_360 2.7.6                                                         */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
@@ -44,7 +44,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.5";
+const String VERSION       = "v2.7.6";
 
 /**************************************************************************
    Debug
@@ -107,6 +107,7 @@ IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
 
 // multicast
+bool setlocal = true;                // append .local, false to disable
 WiFiUDP WiFiUdp;
 IPAddress ipMulti(239, 0, 0, 57);
 unsigned int portMulti = 12345;      // local port to listen on
@@ -1149,7 +1150,7 @@ void sendHeader(int httpcode)
   server.sendContent("        <div class='col-md-12'>\n");
   server.sendContent("          <ul class='nav nav-pills'>\n");
   server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='http://" + String(host_name) + ".local" + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ".local" + ":" + String(port) + "</span></a></li>\n");
+  server.sendContent("              <a href='http://" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "</span></a></li>\n");
   server.sendContent("            <li class='active'>\n");
   server.sendContent("              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n");
   server.sendContent("            <li class='active'>\n");
@@ -1183,7 +1184,7 @@ void buildHeader()
   htmlHeader+="        <div class='col-md-12'>\n";
   htmlHeader+="          <ul class='nav nav-pills'>\n";
   htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='http://" + String(host_name) + ".local" + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ".local" + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader+="              <a href='http://" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "</span></a></li>\n";
   htmlHeader+="            <li class='active'>\n";
   htmlHeader+="              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n";
   htmlHeader+="            <li class='active'>\n";
@@ -1490,10 +1491,10 @@ void sendCodePage(Code& selCode, int httpcode)
     htmlData+="      <div class='row'>\n";
     htmlData+="        <div class='col-md-12'>\n";
     htmlData+="          <ul class='list-unstyled'>\n";
-    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</a></pre></li>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "], \"type\":\"raw\", \"khz\":38}]</pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
+    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
     htmlData+="          </ul>\n";
   }
   else
@@ -1501,17 +1502,17 @@ void sendCodePage(Code& selCode, int httpcode)
     htmlData+="      <div class='row'>\n";
     htmlData+="        <div class='col-md-12'>\n";
     htmlData+="          <ul class='list-unstyled'>\n";
-    htmlData+="            <li>Hostname <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre><a href='http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]'>http://" + String(host_name) + ".local:" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span></li>\n";
-    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
+    htmlData+="            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
+    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
     htmlData+="          </ul>\n";
   }
 
   htmlData+="        </div>\n";
   htmlData+="     </div>\n";
-  htmlData+=buildJavascript();
   htmlData+=htmlFooter;
+  htmlData+=buildJavascript();
 
   //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
   server.send(httpcode, "text/html; charset=utf-8", htmlData);
@@ -1520,7 +1521,8 @@ void sendCodePage(Code& selCode, int httpcode)
 
 String buildJavascript(){
 
-  return F("<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
+  return F("<script src='http://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js'></script>"
+  "<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
   "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
   "var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "
   "last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);"
@@ -1529,7 +1531,9 @@ String buildJavascript(){
   "ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); "
   " ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; "
   "ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; "
-  "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } </script>");
+  "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } "
+  "function copyclipboard(element) { var $temp = $('<input>');$('body').append($temp);$temp.val($(element).text()).select();document.execCommand('copy');$temp.remove();}"
+  "</script>");
 }
 
 /**************************************************************************
