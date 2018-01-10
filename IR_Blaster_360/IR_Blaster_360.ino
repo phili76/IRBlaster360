@@ -75,7 +75,7 @@ class Code
     char encoding[14] = "";
     char address[20] = "";
     char command[20] = "";
-    char data[8] = "";
+    char data[16] = "";
     String raw = "";
     int bits = 0;
     char timestamp[13] = "";
@@ -118,6 +118,8 @@ int value = 0;
 String prefix = "irblaster";
 String topic = "data";
 char mqttmsg[500] = "";
+int mqttconnecttry = 0;    // if not available stop connecting
+
 
 // ir
 #define TIMEOUT 15U    // capture long ir telegrams, e.g. AC
@@ -368,7 +370,7 @@ bool setupWifi(bool resetConf)
 
 void reconnect() {
   // Loop until we're reconnected
-  while (!client.connected()) {
+  while (!client.connected() && mqttconnecttry < 3) {
     Serial.print("MQT: Attempting MQTT connection...");
     // Create a random client ID
     String clientId = "ESP8266Client-";
@@ -381,14 +383,17 @@ void reconnect() {
       // ... and resubscribe
       // client.subscribe("inTopic");
     } else {
+      mqttconnecttry +=1;
       Serial.print("MQT: failed, rc=");
       Serial.print(client.state());
-      Serial.println("MQT: try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+      Serial.println("MQT: try again in 2 seconds");
+      if (mqttconnecttry = 3) Serial.println("MQT: giving up");
+      // Wait 2 seconds before retrying
+      delay(2000);
     }
   }
 }
+
 
 
 /**************************************************************************
@@ -1062,7 +1067,7 @@ int rokuCommand(String ip, String data)
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, data.c_str(), 8);
+  strncpy(last_send.data, data.c_str(), 16);
   last_send.bits = 1;
   strncpy(last_send.encoding, "roku", 20);
   strncpy(last_send.address, ip.c_str(), 20);
@@ -1606,7 +1611,7 @@ void codeJson(JsonObject &codeData, decode_results *results)
 // new convert
 //
 void copyCode (Code& c1, Code& c2) {
-  strncpy(c2.data, c1.data, 8);
+  strncpy(c2.data, c1.data, 16);
   strncpy(c2.encoding, c1.encoding, 20);
   strncpy(c2.timestamp, c1.timestamp, 13);
   strncpy(c2.address, c1.address, 20);
@@ -1621,7 +1626,7 @@ void copyCode (Code& c1, Code& c2) {
 //
 void cvrtCode(Code& codeData, decode_results *results)
 {
-  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 8);
+  strncpy(codeData.data, Uint64toString(results->value, 16).c_str(), 16);
   strncpy(codeData.encoding, encoding(results).c_str(), 20);
   codeData.bits = results->bits;
   String r = "";
@@ -1834,7 +1839,7 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, dataStr.c_str(), 8);
+  strncpy(last_send.data, dataStr.c_str(), 16);
   last_send.bits = len;
   strncpy(last_send.encoding, type.c_str(), 20);
   strncpy(last_send.address, ("0x" + String(address, HEX)).c_str(), 20);
@@ -1885,7 +1890,7 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   copyCode(last_send_2, last_send_3);
   copyCode(last_send, last_send_2);
 
-  strncpy(last_send.data, "", 8);
+  strncpy(last_send.data, "", 16);
   last_send.bits = raw.size();
   strncpy(last_send.encoding, "RAW", 20);
   strncpy(last_send.address, "0x0", 20);
