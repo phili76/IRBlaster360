@@ -397,6 +397,10 @@ void setup()
     }
 
     startWebSocket();     // Start a WebSocket server
+    webservernotfound();  // search on SPIFFS for file
+    webserverupload();    // /uploadfile to store file in flashfilesystem SPIFFS
+    getSPIFFScontent();   // print SPIFFS content to serial
+    webgetSPIFFS();
 
     // Configure the server
     // JSON handler for more complicated IR blaster routines
