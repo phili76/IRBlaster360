@@ -147,7 +147,7 @@ time_t getNtpTime()
   WiFi.hostByName(ntpserver, ntpServerIP);
   Serial.print("NTP: ");
   Serial.print(ntpserver);
-  Serial.print(": ");
+  Serial.print(" IP: ");
   Serial.println(ntpServerIP);
   sendNTPpacket(ntpServerIP);
   uint32_t beginWait = millis();
@@ -272,13 +272,10 @@ bool setupWifi(bool resetConf)
         json.printTo(Serial);
         if (json.success()) {
           DEBUG_PRINTLN("\nparsed json");
-
           if (json.containsKey("hostname")) strncpy(host_name, json["hostname"], 20);
           if (json.containsKey("passcode")) strncpy(passcode, json["passcode"], 20);
-          if (json.containsKey("port_str")) {
-            strncpy(port_str, json["port_str"], 5);
-          }
-          if (port_str[0] == 0) strncpy(port_str, "80", 5);    //set default hostname when not set!
+          if (json.containsKey("port_str")) strncpy(port_str, json["port_str"], 5);
+          if (port_str[0] == 0) strncpy(port_str, "80", 5);
           port = atoi(port_str);
           if (json.containsKey("ntpserver")) strncpy(ntpserver, json["ntpserver"], 30);
         } else {
@@ -314,18 +311,18 @@ bool setupWifi(bool resetConf)
   strncpy(host_name, custom_hostname.getValue(), 20);
   strncpy(passcode, custom_passcode.getValue(), 20);
   strncpy(port_str, custom_port.getValue(), 5);
-  if (port_str[0] == 0) strncpy(port_str, "80", 5) ;    //set default hostname when not set!
+  if (port_str[0] == 0) strncpy(port_str, "80", 5);
   port = atoi(port_str);
   if (port != 80) {
     DEBUG_PRINTLN("Default port changed");
-    // server = ESP8266WebServer server(port); //not possible to change the port after initialization!! compile error in 2.4.0 ESP8266
+    server.~ESP8266WebServer();
+    new (&server) ESP8266WebServer(port);
   }
 
   Serial.println("WiFi connected! User chose hostname '" + String(host_name) + String("' passcode '") + String(passcode) + "' and port '" + String(port_str) + "'");
 
   // save the custom parameters to FS
-  if (shouldSaveConfig)
-  {
+  if (shouldSaveConfig) {
     DEBUG_PRINTLN(" config...");
     DynamicJsonBuffer jsonBuffer;
     JsonObject& json = jsonBuffer.createObject();
@@ -385,8 +382,8 @@ void setup()
     DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
 
 
-    if (getTime)
-    {
+    if (getTime) {
+      setTime(1514764800);  // 1.1.2018 00:00 Initialize time
       Serial.println("NTP: Starting UDP");
       Udp.begin(localPort);
       Serial.print("NTP: Local port: ");
@@ -396,8 +393,7 @@ void setup()
       setSyncInterval(3600);
       String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
       strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
-    }
-    else {                  // if NTP is disabled set Dummydate
+    } else {                  // if NTP is disabled set Dummydate
       setTime(1514764800);  // 1.1.2018 00:00
     }
 
@@ -538,7 +534,7 @@ void setup()
 
 void Handle_config()
 {
-  if (server.method() == HTTP_GET){
+  if (server.method() == HTTP_GET) {
     DEBUG_PRINTLN("WEB: Connection received - /config");
     sendConfigPage();
   } else {
@@ -548,9 +544,12 @@ void Handle_config()
 }
 
 
-void Handle_Reboot(){
+void Handle_Reboot()
+{
   server.sendHeader("Connection", "close");
-  server.send(200, "text/html", F("<body>Reboot OK, redirect in <b id='count'>3</b></body><script>var counter = 3;setInterval(function() {counter--;if(counter < 1) {window.location = '/';} else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
+  server.send(200, "text/html", F("<body>Reboot OK, redirect in <b id='count'>4</b></body><script>var counter = 4;"
+  " setInterval(function() {counter--;if(counter < 1) {window.location = 'http://'+window.location.hostname+':'+(window.location.search).substring(1);}"
+  " else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
   delay(500);
   ESP.restart();
 }
@@ -576,7 +575,6 @@ void Handle_ResetWiFi()
 **************************************************************************/
 void FlashESP()
 {
-
   HTTPUpload& upload = server.upload();
   if (!(upload.filename[0] == 0)){
     if (upload.status == UPLOAD_FILE_START)
@@ -642,6 +640,7 @@ void Handle_update()
     ESP.restart();
   }
 }
+
 String GetUploadHTML()
 {
   return F("<!DOCTYPE html>"
@@ -657,7 +656,11 @@ String GetUploadHTML()
     "<h1><b>ESP8266 IR Controller - Firmware-Update</b></h1>"
     "<form method=\"post\" action=\"/update\" enctype=\"multipart/form-data\" novalidate class=\"box\">"
     "<div class=\"box__input\">"
-    "<svg class=\"box__icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"50\" height=\"43\" viewBox=\"0 0 50 43\"><path d=\"M48.4 26.5c-.9 0-1.7.7-1.7 1.7v11.6h-43.3v-11.6c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v13.2c0 .9.7 1.7 1.7 1.7h46.7c.9 0 1.7-.7 1.7-1.7v-13.2c0-1-.7-1.7-1.7-1.7zm-24.5 6.1c.3.3.8.5 1.2.5.4 0 .9-.2 1.2-.5l10-11.6c.7-.7.7-1.7 0-2.4s-1.7-.7-2.4 0l-7.1 8.3v-25.3c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v25.3l-7.1-8.3c-.7-.7-1.7-.7-2.4 0s-.7 1.7 0 2.4l10 11.6z\" /></svg>"
+    "<svg class=\"box__icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"50\" height=\"43\" viewBox=\"0 0 50 43\">"
+    "<path d=\"M48.4 26.5c-.9 0-1.7.7-1.7 1.7v11.6h-43.3v-11.6c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v13.2c0"
+    " .9.7 1.7 1.7 1.7h46.7c.9 0 1.7-.7 1.7-1.7v-13.2c0-1-.7-1.7-1.7-1.7zm-24.5 6.1c.3.3.8.5 1.2.5.4 0"
+    " .9-.2 1.2-.5l10-11.6c.7-.7.7-1.7 0-2.4s-1.7-.7-2.4 0l-7.1 8.3v-25.3c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7"
+    " 1.7v25.3l-7.1-8.3c-.7-.7-1.7-.7-2.4 0s-.7 1.7 0 2.4l10 11.6z\" /></svg>"
     "<input type=\"file\" name=\"update\" id=\"file\" class=\"box__file\" />"
     "<label for=\"file\">"
     "<strong>Select a firmware binary...</strong>"
@@ -976,7 +979,8 @@ String GetStyle()
    add leading zeros if under 10
 **************************************************************************/
 
-String printDigits2(int digits) { // 2 digits
+String printDigits2(int digits) // 2 digits
+{
   String s="";
   (digits < 10) ? s = "0" + String(digits): s = String(digits);
   return s;
@@ -985,7 +989,8 @@ String printDigits2(int digits) { // 2 digits
    add leading zeros if under 10
 **************************************************************************/
 
-String printDigits3(long digits) { // 3 digits
+String printDigits3(long digits) // 3 digits
+{
   String s="";
   (digits < 10) ? s = "00" + String(digits): ((digits < 100) ? s = "0" + String(digits): s = String(digits));
   return s;
@@ -1131,6 +1136,7 @@ void sendHeader()
 {
   sendHeader(200);
 }
+
 void sendHeader(int httpcode)
 {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
@@ -1162,13 +1168,10 @@ void sendHeader(int httpcode)
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
-
-
 }
 
 void buildHeader()
 {
-
   htmlHeader="<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
   htmlHeader+="<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
   htmlHeader+="  <head>\n";
@@ -1196,7 +1199,6 @@ void buildHeader()
   htmlHeader+="          </ul>\n";
   htmlHeader+="        </div>\n";
   htmlHeader+="      </div><hr />\n";
-
 }
 
 /**************************************************************************
@@ -1231,14 +1233,17 @@ void sendConfigPage()
 {
   sendConfigPage("", "");
 }
+
 void sendConfigPage(String message, String header)
 {
   sendConfigPage(message, header, 0);
 }
+
 void sendConfigPage(String message, String header, int type)
 {
   sendConfigPage(message, header, type, 200);
 }
+
 void sendConfigPage(String message, String header, int type, int httpcode)
 {
 char passcode_conf[20] = "";
@@ -1359,12 +1364,12 @@ if (type == 1){                                     // save data
   htmlDataconf+="            <tbody>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + ((host_name_conf[0] == 0 ) ? String("(" + String(host_name) + ")") : String(host_name_conf)) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td></td></tr>\n"; //<input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'>
+  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + ((ntpserver_conf[0] == 0 ) ? String("(" + String(poolServerName) + ")") : String(ntpserver_conf)) + "</code></td><td><input type='text' id='ntpserver_conf' name='ntpserver_conf' value='" + String(ntpserver_conf) + "'></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
   htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
   htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
-  htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
+  htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot?" + String(port_str_conf) + "' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
   htmlDataconf+="            </tbody></table>\n";
   htmlDataconf+="          </div></div>\n";
   htmlDataconf+=htmlFooter;
@@ -1382,14 +1387,17 @@ void sendHomePage()
 {
   sendHomePage("", "");
 }
+
 void sendHomePage(String message, String header)
 {
   sendHomePage(message, header, 0);
 }
+
 void sendHomePage(String message, String header, int type)
 {
   sendHomePage(message, header, type, 200);
 }
+
 void sendHomePage(String message, String header, int type, int httpcode)
 {
   sendHeader(httpcode);
@@ -1449,6 +1457,7 @@ void sendCodePage(Code& selCode)
 {
   sendCodePage(selCode, 200);
 }
+
 void sendCodePage(Code& selCode, int httpcode)
 {
   String htmlData;
@@ -1519,8 +1528,8 @@ void sendCodePage(Code& selCode, int httpcode)
   server.client().stop();
 }
 
-String buildJavascript(){
-
+String buildJavascript()
+{
   return F("<script src='http://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js'></script>"
   "<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
   "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
@@ -1566,7 +1575,8 @@ void codeJson(JsonObject &codeData, decode_results *results)
 //
 // new convert
 //
-void copyCode (Code& c1, Code& c2) {
+void copyCode (Code& c1, Code& c2)
+{
   strncpy(c2.data, c1.data, 16);
   strncpy(c2.encoding, c1.encoding, 20);
   strncpy(c2.timestamp, c1.timestamp, 13);
@@ -1625,6 +1635,7 @@ void dumpInfo(decode_results *results)
   Serial.print(results->bits, DEC);
   Serial.println(" bits)");
 }
+
 void dumpRaw(decode_results *results)
 {
   // Print Raw data
@@ -1654,6 +1665,7 @@ void dumpRaw(decode_results *results)
   }
   Serial.println("");  // Newline
 }
+
 void dumpCode(decode_results *results)
 {
   // Start declaration
@@ -1805,6 +1817,7 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
 
 
 }
+
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
   DEBUG_PRINTLN("IR : Raw transmit");
@@ -1855,6 +1868,7 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   last_send.valid = true;
 
 }
+
 void roomba_send(int code, int pulse, int pdelay)
 {
   DEBUG_PRINTLN("IR : Sending Roomba code");
@@ -1935,6 +1949,7 @@ String CreateKVPSystemInfoString()
 
   return result;
 }
+
 String CreateKVPCommandURLString()
 {
   DEBUG_PRINTLN("KVP: Get KVP command URL string...");
@@ -1947,6 +1962,7 @@ String CreateKVPCommandURLString()
   result += ipToString(WiFi.localIP()) + ":" + String(port) + "/reset";
   return result;
 }
+
 String CreateKVPInitString()
 {
   DEBUG_PRINTLN("KVP: Create KVP init string...");
@@ -1955,7 +1971,9 @@ String CreateKVPInitString()
   result += deviceID;
   return result;
 }
-void sendMultiCast(String msg) {
+
+void sendMultiCast(String msg)
+{
   DEBUG_PRINT("KVP: Send UPD-Multicast: ");
   DEBUG_PRINTLN(msg);
   if (WiFiUdp.beginPacketMulticast(ipMulti, portMulti, WiFi.localIP()) == 1)
@@ -1969,7 +1987,8 @@ void sendMultiCast(String msg) {
 /**************************************************************************
    Main loop
 **************************************************************************/
-void loop() {
+void loop()
+{
   server.handleClient();
   decode_results  results;                                       // Somewhere to store the results
   if (irrecv.decode(&results)) {                                  // Grab an IR code
