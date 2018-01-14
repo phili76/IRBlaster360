@@ -30,9 +30,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPClient.h>
 #include <Ticker.h>
-//#include <Dns.h>
 #include <TimeLib.h>
-
+#include "websockets.h"
 
 /**************************************************************************
    Defines
@@ -44,7 +43,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.6";
+const String VERSION       = "v2.7.7";
 
 /**************************************************************************
    Debug
@@ -131,6 +130,9 @@ String javaScript;
 String htmlHeader;
 String htmlFooter;
 
+// websockets
+// .h .cpp
+WebSocketsServer webSocket = WebSocketsServer(81);    // create a websocket server on port 81
 
 /*-------- NTP code ----------*/
 
@@ -393,6 +395,8 @@ void setup()
       String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
       strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
     }
+
+    startWebSocket();     // Start a WebSocket server
 
     // Configure the server
     // JSON handler for more complicated IR blaster routines
@@ -813,6 +817,7 @@ String GetUploadHTML()
     "</body>"
     "</html>");
 }
+
 String GetStyle()
 {
   return F("body {"
@@ -1987,6 +1992,7 @@ void sendMultiCast(String msg)
 void loop()
 {
   server.handleClient();
+  webSocket.loop();             // constantly check for websocket events
   decode_results  results;                                       // Somewhere to store the results
   if (irrecv.decode(&results)) {                                  // Grab an IR code
     Serial.print("IR  : Signal received: ");
