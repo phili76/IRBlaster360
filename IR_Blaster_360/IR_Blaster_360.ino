@@ -115,7 +115,7 @@ String deviceID = "";
 
 //NTP
 bool getTime = true;                                    // Set to false to disable querying for the time
-char* poolServerName = "europe.pool.ntp.org";        // default NTP Server when not configured in config.json
+char poolServerName[30] = "europe.pool.ntp.org";            // default NTP Server when not configured in config.json
 char boottime[20] = "";
 
 const int timeZone = 1;     // Central European Time
@@ -381,9 +381,8 @@ void setup()
 
     DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
 
-
+    setTime(1514764800);  // 1.1.2018 00:00 Initialize time
     if (getTime) {
-      setTime(1514764800);  // 1.1.2018 00:00 Initialize time
       Serial.println("NTP: Starting UDP");
       Udp.begin(localPort);
       Serial.print("NTP: Local port: ");
@@ -393,8 +392,6 @@ void setup()
       setSyncInterval(3600);
       String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
       strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
-    } else {                  // if NTP is disabled set Dummydate
-      setTime(1514764800);  // 1.1.2018 00:00
     }
 
     // Configure the server
