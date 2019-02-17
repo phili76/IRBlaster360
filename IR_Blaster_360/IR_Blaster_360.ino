@@ -42,7 +42,7 @@
 /**************************************************************************
    Defines
 **************************************************************************/
-#define DEBUG
+//#define DEBUG
 #define IR_SEND_PIN     D1
 #define IR_RECEIVE_PIN  D4
 #define CONFIG_PIN      D7
