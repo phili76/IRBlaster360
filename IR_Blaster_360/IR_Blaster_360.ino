@@ -4,7 +4,7 @@
 /*                                                                                  */
 /*  Bugsfixes Stand 17.02.2019                                                      */
 /*  https://github.com/JoergBo/IRBlaster360 (RC6 send)                              */
-/*  https://github.com/FranziHH/IRBlaster360 (JVC send, Panasonic send)             */                                     
+/*  https://github.com/FranziHH/IRBlaster360 (JVC send)                             */
 /*                                                                                  */
 /*  Main work:                                                                      */
 /*  https://github.com/phili76/IRBlaster360                                         */
@@ -110,7 +110,7 @@ bool shouldSaveConfig = false;                                // Flag for saving
 #define RAWBUF 100U    // larger buffer
 IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
-bool toggle_RC6=false;
+bool toggle_RC6 = false;
 
 // multicast
 bool setlocal = true;                // append .local, false to disable
@@ -264,7 +264,7 @@ bool setupWifi(bool resetConf)
     DEBUG_PRINTLN("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
-      ;("reading config file");
+      ; ("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
         DEBUG_PRINTLN("opened config file");
@@ -369,170 +369,170 @@ void setup()
     return;
   if (host_name[0] == 0 ) strncpy(host_name, "irblaster", 20);    //set default hostname when not set!
   if (ntpserver[0] == 0 ) strncpy(ntpserver, poolServerName, 30);    //set default ntp server when not set!
-    WiFi.hostname(host_name);
-    while (WiFi.status() != WL_CONNECTED)
+  WiFi.hostname(host_name);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  wifi_set_sleep_type(LIGHT_SLEEP_T);
+  digitalWrite(LED_PIN, LOW);
+  // Turn off the led in 2s
+  ticker.attach(2, disableLed);
+
+  // Configure mDNS
+  if (MDNS.begin(host_name)) DEBUG_PRINTLN("WEB: mDNS started. Hostname is set to " + String(host_name) + ".local");
+  MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
+
+  DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
+
+  setTime(1514764800);  // 1.1.2018 00:00 Initialize time
+  if (getTime) {
+    Serial.println("NTP: Starting UDP");
+    Udp.begin(localPort);
+    Serial.print("NTP: Local port: ");
+    Serial.println(Udp.localPort());
+    Serial.println("NTP: waiting for sync");
+    setSyncProvider(getNtpTime);
+    setSyncInterval(3600);
+    String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
+    strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
+  }
+
+  // Configure the server
+  // JSON handler for more complicated IR blaster routines
+  server.on("/json", []()
+  {
+    DEBUG_PRINTLN("WEB: Connection received - JSON");
+
+    // disable the receiver
+    irrecv.disableIRIn();
+
+    DynamicJsonBuffer jsonBuffer;
+    JsonArray& root = jsonBuffer.parseArray(server.arg("plain"));
+
+    if (!root.success())
     {
-      delay(500);
-      Serial.print(".");
+      DEBUG_PRINTLN("JSO: JSON parsing failed");
+
+      // http response
+      server.send(400, "text/html", "JSON parsing failed");
     }
-
-    wifi_set_sleep_type(LIGHT_SLEEP_T);
-    digitalWrite(LED_PIN, LOW);
-    // Turn off the led in 2s
-    ticker.attach(2, disableLed);
-
-    // Configure mDNS
-    if (MDNS.begin(host_name)) DEBUG_PRINTLN("WEB: mDNS started. Hostname is set to " + String(host_name) + ".local");
-    MDNS.addService("http", "tcp", port); // Announce the ESP as an HTTP service
-
-    DEBUG_PRINTLN("WEB: URL to send commands: http://" + String(host_name) + ".local:" + port_str);
-
-    setTime(1514764800);  // 1.1.2018 00:00 Initialize time
-    if (getTime) {
-      Serial.println("NTP: Starting UDP");
-      Udp.begin(localPort);
-      Serial.print("NTP: Local port: ");
-      Serial.println(Udp.localPort());
-      Serial.println("NTP: waiting for sync");
-      setSyncProvider(getNtpTime);
-      setSyncInterval(3600);
-      String boottimetemp = printDigits2(hour()) + ":" + printDigits2(minute()) + " " + printDigits2(day()) + "." + printDigits2(month()) + "." + String(year());
-      strncpy(boottime, boottimetemp.c_str(), 20);           // If we got time set boottime
-    }
-
-    // Configure the server
-    // JSON handler for more complicated IR blaster routines
-    server.on("/json", []()
+    else if (server.arg("pass") != passcode)
     {
-      DEBUG_PRINTLN("WEB: Connection received - JSON");
+      DEBUG_PRINTLN("WEB: Unauthorized access");
 
-      // disable the receiver
-      irrecv.disableIRIn();
+      // http response
+      server.send(401, "text/html", "Invalid passcode");
+    }
+    else
+    {
+      // http response
+      server.send(200, "text/html", "Code sent: /json?plain=" + server.arg("plain"));
 
-      DynamicJsonBuffer jsonBuffer;
-      JsonArray& root = jsonBuffer.parseArray(server.arg("plain"));
+      digitalWrite(LED_PIN, LOW);
+      ticker.attach(0.5, disableLed);
+      for (int x = 0; x < root.size(); x++) {
+        String type = root[x]["type"];
+        String ip = root[x]["ip"];
+        int rdelay = root[x]["rdelay"];
+        int pulse = root[x]["pulse"];
+        int pdelay = root[x]["pdelay"];
+        int repeat = root[x]["repeat"];
+        int cdelay = root[x]["cdelay"];
 
-      if (!root.success())
-      {
-        DEBUG_PRINTLN("JSO: JSON parsing failed");
+        if (pulse <= 0) pulse = 1; // Make sure pulse isn't 0
+        if (repeat <= 0) repeat = 1; // Make sure repeat isn't 0
+        if (pdelay <= 0) pdelay = 100; // Default pdelay
+        if (rdelay <= 0) rdelay = 1000; // Default rdelay
+        if (cdelay <= 0) cdelay = 500; // default delay between two commands
 
-        // http response
-        server.send(400, "text/html", "JSON parsing failed");
-      }
-      else if (server.arg("pass") != passcode)
-      {
-        DEBUG_PRINTLN("WEB: Unauthorized access");
+        if (type == "delay") {
+          delay(rdelay);
+        } else if (type == "raw") {
+          JsonArray &raw = root[x]["data"]; // Array of unsigned int values for the raw signal
+          int khz = root[x]["khz"];
+          if (khz <= 0) khz = 38; // Default to 38khz if not set
+          rawblast(raw, khz, rdelay, pulse, pdelay, repeat);
+        } else if (type == "roku") {
+          String data = root[x]["data"];
+          rokuCommand(ip, data);
+        } else {
+          String data = root[x]["data"];
+          long address = root[x]["address"];
+          //if (root[x]["address"] == "") address = "0";    Was macht das?
+          int len = root[x]["length"];
+          irblast(type, data, len, rdelay, pulse, pdelay, repeat, address);
+        }
 
-        // http response
-        server.send(401, "text/html", "Invalid passcode");
-      }
-      else
-      {
-        // http response
-        server.send(200, "text/html", "Code sent: /json?plain=" + server.arg("plain"));
-
-        digitalWrite(LED_PIN, LOW);
-        ticker.attach(0.5, disableLed);
-        for (int x = 0; x < root.size(); x++) {
-          String type = root[x]["type"];
-          String ip = root[x]["ip"];
-          int rdelay = root[x]["rdelay"];
-          int pulse = root[x]["pulse"];
-          int pdelay = root[x]["pdelay"];
-          int repeat = root[x]["repeat"];
-          int cdelay = root[x]["cdelay"];
-
-          if (pulse <= 0) pulse = 1; // Make sure pulse isn't 0
-          if (repeat <= 0) repeat = 1; // Make sure repeat isn't 0
-          if (pdelay <= 0) pdelay = 100; // Default pdelay
-          if (rdelay <= 0) rdelay = 1000; // Default rdelay
-          if (cdelay <= 0) cdelay = 500; // default delay between two commands
-
-          if (type == "delay") {
-            delay(rdelay);
-          } else if (type == "raw") {
-            JsonArray &raw = root[x]["data"]; // Array of unsigned int values for the raw signal
-            int khz = root[x]["khz"];
-            if (khz <= 0) khz = 38; // Default to 38khz if not set
-            rawblast(raw, khz, rdelay, pulse, pdelay, repeat);
-          } else if (type == "roku") {
-            String data = root[x]["data"];
-            rokuCommand(ip, data);
-          } else {
-            String data = root[x]["data"];
-            String address = root[x]["address"];
-            if (address == "") address = "0";
-            int len = root[x]["length"];
-            irblast(type, data, len, rdelay, pulse, pdelay, repeat, address);
-          }
-
-          if (x + 1 < root.size())
-          {
-            DEBUG_PRINTLN("IR : wait between two commands");
-            delay(cdelay);
-          }
+        if (x + 1 < root.size())
+        {
+          DEBUG_PRINTLN("IR : wait between two commands");
+          delay(cdelay);
         }
       }
+    }
 
-      // enable the receiver
-      irrecv.enableIRIn();
-    });
-    server.on("/freemem", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
-      DEBUG_PRINT(ESP.getFreeSketchSpace());
-      server.sendHeader("Connection", "close");
-      server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
-    });
-
-    server.on("/received", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /received");
-      int id = server.arg("id").toInt();
-      String output;
-      if (id == 1 && last_recv.valid) {
-        sendCodePage(last_recv);
-      } else if (id == 2 && last_recv_2.valid) {
-        sendCodePage(last_recv_2);
-      } else if (id == 3 && last_recv_3.valid) {
-        sendCodePage(last_recv_3);
-      } else if (id == 4 && last_recv_4.valid) {
-        sendCodePage(last_recv_4);
-      } else if (id == 5 && last_recv_5.valid) {
-        sendCodePage(last_recv_5);
-      } else {
-        sendHomePage("Code does not exist", "Alert", 2, 404); // 404
-      }
-    });
-    server.on("/config", Handle_config);
-
-    server.on("/upload", Handle_upload);
-
-    server.on("/update", HTTP_POST, Handle_update, FlashESP);
-
-    server.on("/style", Handle_Style);
-
-    server.on("/reset", Handle_ResetWiFi);
-
-    server.on("/reboot", Handle_Reboot);
-
-    server.on("/", []() {
-      DEBUG_PRINTLN("WEB: Connection received: /");
-      sendHomePage(); // 200
-    });
-
-    server.begin();
-    DEBUG_PRINTLN("WEB: HTTP Server started on port " + String(port));
-
-    // create unique DeviceID and send key value information
-    deviceID = "IR_Blaster " + GetChipID();
-    sendMultiCast(CreateKVPInitString());
-    sendMultiCast(CreateKVPSystemInfoString());
-    sendMultiCast(CreateKVPCommandURLString());
-    sendKVPCodeString();
-
-    // initialize the IR interface
-    irsend.begin();
+    // enable the receiver
     irrecv.enableIRIn();
-    DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
+  });
+  server.on("/freemem", []() {
+    DEBUG_PRINTLN("WEB: Connection received: /freemem : ");
+    DEBUG_PRINT(ESP.getFreeSketchSpace());
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", String(ESP.getFreeSketchSpace()).c_str());
+  });
+
+  server.on("/received", []() {
+    DEBUG_PRINTLN("WEB: Connection received: /received");
+    int id = server.arg("id").toInt();
+    String output;
+    if (id == 1 && last_recv.valid) {
+      sendCodePage(last_recv);
+    } else if (id == 2 && last_recv_2.valid) {
+      sendCodePage(last_recv_2);
+    } else if (id == 3 && last_recv_3.valid) {
+      sendCodePage(last_recv_3);
+    } else if (id == 4 && last_recv_4.valid) {
+      sendCodePage(last_recv_4);
+    } else if (id == 5 && last_recv_5.valid) {
+      sendCodePage(last_recv_5);
+    } else {
+      sendHomePage("Code does not exist", "Alert", 2, 404); // 404
+    }
+  });
+  server.on("/config", Handle_config);
+
+  server.on("/upload", Handle_upload);
+
+  server.on("/update", HTTP_POST, Handle_update, FlashESP);
+
+  server.on("/style", Handle_Style);
+
+  server.on("/reset", Handle_ResetWiFi);
+
+  server.on("/reboot", Handle_Reboot);
+
+  server.on("/", []() {
+    DEBUG_PRINTLN("WEB: Connection received: /");
+    sendHomePage(); // 200
+  });
+
+  server.begin();
+  DEBUG_PRINTLN("WEB: HTTP Server started on port " + String(port));
+
+  // create unique DeviceID and send key value information
+  deviceID = "IR_Blaster " + GetChipID();
+  sendMultiCast(CreateKVPInitString());
+  sendMultiCast(CreateKVPSystemInfoString());
+  sendMultiCast(CreateKVPCommandURLString());
+  sendKVPCodeString();
+
+  // initialize the IR interface
+  irsend.begin();
+  irrecv.enableIRIn();
+  DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
 
 }
 
@@ -544,7 +544,7 @@ void Handle_config()
   } else {
     DEBUG_PRINTLN("WEB: Connection received - /config (save)");
     sendConfigPage("Settings saved successfully!", "Success!", 1);
-    }
+  }
 }
 
 
@@ -552,8 +552,8 @@ void Handle_Reboot()
 {
   server.sendHeader("Connection", "close");
   server.send(200, "text/html", F("<body>Reboot OK, redirect in <b id='count'>4</b></body><script>var counter = 4;"
-  " setInterval(function() {counter--;if(counter < 1) {window.location = 'http://'+window.location.hostname+':'+(window.location.search).substring(1);}"
-  " else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
+                                  " setInterval(function() {counter--;if(counter < 1) {window.location = 'http://'+window.location.hostname+':'+(window.location.search).substring(1);}"
+                                  " else {document.getElementById('count').innerHTML = counter;}}, 1000);</script>"));
   delay(500);
   ESP.restart();
 }
@@ -580,7 +580,7 @@ void Handle_ResetWiFi()
 void FlashESP()
 {
   HTTPUpload& upload = server.upload();
-  if (!(upload.filename[0] == 0)){
+  if (!(upload.filename[0] == 0)) {
     if (upload.status == UPLOAD_FILE_START)
     {
       Serial.setDebugOutput(false);
@@ -648,335 +648,335 @@ void Handle_update()
 String GetUploadHTML()
 {
   return F("<!DOCTYPE html>"
-    "<html lang=\"en\" class=\"no-js\">"
-    "<head>"
-    "<meta charset=\"utf-8\">"
-    "<title>IR - Firmware-Update</title>"
-    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />"
-    "<link href=\"./style\" rel=\"stylesheet\">"
-    "</head>"
-    "<body>"
-    "<div class=\"container\" role=\"main\">"
-    "<h1><b>ESP8266 IR Controller - Firmware-Update</b></h1>"
-    "<form method=\"post\" action=\"/update\" enctype=\"multipart/form-data\" novalidate class=\"box\">"
-    "<div class=\"box__input\">"
-    "<svg class=\"box__icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"50\" height=\"43\" viewBox=\"0 0 50 43\">"
-    "<path d=\"M48.4 26.5c-.9 0-1.7.7-1.7 1.7v11.6h-43.3v-11.6c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v13.2c0"
-    " .9.7 1.7 1.7 1.7h46.7c.9 0 1.7-.7 1.7-1.7v-13.2c0-1-.7-1.7-1.7-1.7zm-24.5 6.1c.3.3.8.5 1.2.5.4 0"
-    " .9-.2 1.2-.5l10-11.6c.7-.7.7-1.7 0-2.4s-1.7-.7-2.4 0l-7.1 8.3v-25.3c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7"
-    " 1.7v25.3l-7.1-8.3c-.7-.7-1.7-.7-2.4 0s-.7 1.7 0 2.4l10 11.6z\" /></svg>"
-    "<input type=\"file\" name=\"update\" id=\"file\" class=\"box__file\" />"
-    "<label for=\"file\">"
-    "<strong>Select a firmware binary...</strong>"
-    "<br /><span class=\"\"> or drop it here</span>."
-    "</label>"
-    "<button type=\"submit\" class=\"box__button\">Upload</button>"
-    "</div>"
-    "<div class=\"box__uploading\">Uploading&hellip;</div>"
-    "<div class=\"box__success\">"
-    "Complete!<br />"
-    "ESP8266 IR Controller reboot now...<br />"
-    "<progress value=\"0\" max=\"15\" id=\"progressBar\"></progress>"
-    "</div>"
-    "<div class=\"box__error\">Error! <span></span>.</div>"
-    "</form>"
-    "<footer></footer>"
-    "</div>"
-    "<script>"
-    "function reboot() {"
-    "var timeleft = 15;"
-    "var downloadTimer = setInterval(function () {"
-    "document.getElementById(\"progressBar\").value = 15 - --timeleft;"
-    "if (timeleft <= 0) {"
-    "clearInterval(downloadTimer);"
-    "window.location.href = \"/\";"
-    "}"
-    "}, 1000);"
-    "}"
-    "'use strict';"
-    "; (function (document, window, index) {"
-    "var isAdvancedUpload = function () {"
-    "var div = document.createElement('div');"
-    "return (('draggable' in div) || ('ondragstart' in div && 'ondrop' in div)) && 'FormData' in window && 'FileReader' in window;"
-    "}();"
-    "var forms = document.querySelectorAll('.box');"
-    "Array.prototype.forEach.call(forms, function (form) {"
-    "var input = form.querySelector('input[type=\"file\"]'),"
-    "label = form.querySelector('label'),"
-    "errorMsg = form.querySelector('.box__error span'),"
-    "restart = form.querySelectorAll('.box__restart'),"
-    "droppedFiles = false,"
-    "showFiles = function (files) {"
-    "label.textContent = files.length > 1 ? (input.getAttribute('data-multiple-caption') || '').replace('{count}', files.length) : files[0].name;"
-    "},"
-    "triggerFormSubmit = function () {"
-    "var event = document.createEvent('HTMLEvents');"
-    "event.initEvent('submit', true, false);"
-    "form.dispatchEvent(event);"
-    "};"
-    "var ajaxFlag = document.createElement('input');"
-    "ajaxFlag.setAttribute('type', 'hidden');"
-    "ajaxFlag.setAttribute('name', 'ajax');"
-    "ajaxFlag.setAttribute('value', 1);"
-    "form.appendChild(ajaxFlag);"
-    "input.addEventListener('change', function (e) {"
-    "showFiles(e.target.files);"
-    "triggerFormSubmit();"
-    "});"
-    "if (isAdvancedUpload) {"
-    "form.classList.add('has-advanced-upload');"
-    "['drag', 'dragstart', 'dragend', 'dragover', 'dragenter', 'dragleave', 'drop'].forEach(function (event) {"
-    "form.addEventListener(event, function (e) {"
-    "e.preventDefault();"
-    "e.stopPropagation();"
-    "});"
-    "});"
-    "['dragover', 'dragenter'].forEach(function (event) {"
-    "form.addEventListener(event, function () {"
-    "form.classList.add('is-dragover');"
-    "});"
-    "});"
-    "['dragleave', 'dragend', 'drop'].forEach(function (event) {"
-    "form.addEventListener(event, function () {"
-    "form.classList.remove('is-dragover');"
-    "});"
-    "});"
-    "form.addEventListener('drop', function (e) {"
-    "droppedFiles = e.dataTransfer.files;"
-    "showFiles(droppedFiles);"
-    "triggerFormSubmit();"
-    "});"
-    "}"
-    "form.addEventListener('submit', function (e) {"
-    "if (form.classList.contains('is-uploading')) return false;"
-    "form.classList.add('is-uploading');"
-    "form.classList.remove('is-error');"
-    "if (isAdvancedUpload) {"
-    "e.preventDefault();"
-    "var ajaxData = new FormData(form);"
-    "if (droppedFiles) {"
-    "Array.prototype.forEach.call(droppedFiles, function (file) {"
-    "ajaxData.append(input.getAttribute('name'), file);"
-    "});"
-    "}"
-    "var ajax = new XMLHttpRequest();"
-    "ajax.open(form.getAttribute('method'), form.getAttribute('action'), true);"
-    "ajax.onload = function () {"
-    "form.classList.remove('is-uploading');"
-    "if (ajax.status >= 200 && ajax.status < 400) {"
-    "var data = JSON.parse(ajax.responseText);"
-    "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
-    "if (!data.success) {"
-    "errorMsg.textContent = data.error;"
-    "}"
-    "else {"
-    "reboot();"
-    "}"
-    "}"
-    "else alert('Error. Please, contact the webmaster!');"
-    "};"
-    "ajax.onerror = function () {"
-    "form.classList.remove('is-uploading');"
-    "alert('Error. Please, try again!');"
-    "};"
-    "ajax.send(ajaxData);"
-    "}"
-    "else {"
-    "var iframeName = 'uploadiframe' + new Date().getTime(),"
-    "iframe = document.createElement('iframe');"
-    "$iframe = $('<iframe name=\"' + iframeName + '\" style=\"display: none;\"></iframe>');"
-    "iframe.setAttribute('name', iframeName);"
-    "iframe.style.display = 'none';"
-    "document.body.appendChild(iframe);"
-    "form.setAttribute('target', iframeName);"
-    "iframe.addEventListener('load', function () {"
-    "var data = JSON.parse(iframe.contentDocument.body.innerHTML);"
-    "form.classList.remove('is-uploading');"
-    "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
-    "form.removeAttribute('target');"
-    "if (!data.success) {"
-    "errorMsg.textContent = data.error;"
-    "}"
-    "else {"
-    "reboot();"
-    "}"
-    "iframe.parentNode.removeChild(iframe);"
-    "});"
-    "}"
-    "});"
-    "Array.prototype.forEach.call(restart, function (entry) {"
-    "entry.addEventListener('click', function (e) {"
-    "e.preventDefault();"
-    "form.classList.remove('is-error', 'is-success');"
-    "input.click();"
-    "});"
-    "});"
-    "input.addEventListener('focus', function () { input.classList.add('has-focus'); });"
-    "input.addEventListener('blur', function () { input.classList.remove('has-focus'); });"
-    "});"
-    "}(document, window, 0));"
-    "</script>"
-    "<script>(function (e, t, n) { var r = e.querySelectorAll(\"html\")[0]; r.className = r.className.replace(/(^|\\s)no-js(\\s|$)/, \"$1js$2\") })(document, window, 0);</script>"
-    "</body>"
-    "</html>");
+           "<html lang=\"en\" class=\"no-js\">"
+           "<head>"
+           "<meta charset=\"utf-8\">"
+           "<title>IR - Firmware-Update</title>"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />"
+           "<link href=\"./style\" rel=\"stylesheet\">"
+           "</head>"
+           "<body>"
+           "<div class=\"container\" role=\"main\">"
+           "<h1><b>ESP8266 IR Controller - Firmware-Update</b></h1>"
+           "<form method=\"post\" action=\"/update\" enctype=\"multipart/form-data\" novalidate class=\"box\">"
+           "<div class=\"box__input\">"
+           "<svg class=\"box__icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"50\" height=\"43\" viewBox=\"0 0 50 43\">"
+           "<path d=\"M48.4 26.5c-.9 0-1.7.7-1.7 1.7v11.6h-43.3v-11.6c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v13.2c0"
+           " .9.7 1.7 1.7 1.7h46.7c.9 0 1.7-.7 1.7-1.7v-13.2c0-1-.7-1.7-1.7-1.7zm-24.5 6.1c.3.3.8.5 1.2.5.4 0"
+           " .9-.2 1.2-.5l10-11.6c.7-.7.7-1.7 0-2.4s-1.7-.7-2.4 0l-7.1 8.3v-25.3c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7"
+           " 1.7v25.3l-7.1-8.3c-.7-.7-1.7-.7-2.4 0s-.7 1.7 0 2.4l10 11.6z\" /></svg>"
+           "<input type=\"file\" name=\"update\" id=\"file\" class=\"box__file\" />"
+           "<label for=\"file\">"
+           "<strong>Select a firmware binary...</strong>"
+           "<br /><span class=\"\"> or drop it here</span>."
+           "</label>"
+           "<button type=\"submit\" class=\"box__button\">Upload</button>"
+           "</div>"
+           "<div class=\"box__uploading\">Uploading&hellip;</div>"
+           "<div class=\"box__success\">"
+           "Complete!<br />"
+           "ESP8266 IR Controller reboot now...<br />"
+           "<progress value=\"0\" max=\"15\" id=\"progressBar\"></progress>"
+           "</div>"
+           "<div class=\"box__error\">Error! <span></span>.</div>"
+           "</form>"
+           "<footer></footer>"
+           "</div>"
+           "<script>"
+           "function reboot() {"
+           "var timeleft = 15;"
+           "var downloadTimer = setInterval(function () {"
+           "document.getElementById(\"progressBar\").value = 15 - --timeleft;"
+           "if (timeleft <= 0) {"
+           "clearInterval(downloadTimer);"
+           "window.location.href = \"/\";"
+           "}"
+           "}, 1000);"
+           "}"
+           "'use strict';"
+           "; (function (document, window, index) {"
+           "var isAdvancedUpload = function () {"
+           "var div = document.createElement('div');"
+           "return (('draggable' in div) || ('ondragstart' in div && 'ondrop' in div)) && 'FormData' in window && 'FileReader' in window;"
+           "}();"
+           "var forms = document.querySelectorAll('.box');"
+           "Array.prototype.forEach.call(forms, function (form) {"
+           "var input = form.querySelector('input[type=\"file\"]'),"
+           "label = form.querySelector('label'),"
+           "errorMsg = form.querySelector('.box__error span'),"
+           "restart = form.querySelectorAll('.box__restart'),"
+           "droppedFiles = false,"
+           "showFiles = function (files) {"
+           "label.textContent = files.length > 1 ? (input.getAttribute('data-multiple-caption') || '').replace('{count}', files.length) : files[0].name;"
+           "},"
+           "triggerFormSubmit = function () {"
+           "var event = document.createEvent('HTMLEvents');"
+           "event.initEvent('submit', true, false);"
+           "form.dispatchEvent(event);"
+           "};"
+           "var ajaxFlag = document.createElement('input');"
+           "ajaxFlag.setAttribute('type', 'hidden');"
+           "ajaxFlag.setAttribute('name', 'ajax');"
+           "ajaxFlag.setAttribute('value', 1);"
+           "form.appendChild(ajaxFlag);"
+           "input.addEventListener('change', function (e) {"
+           "showFiles(e.target.files);"
+           "triggerFormSubmit();"
+           "});"
+           "if (isAdvancedUpload) {"
+           "form.classList.add('has-advanced-upload');"
+           "['drag', 'dragstart', 'dragend', 'dragover', 'dragenter', 'dragleave', 'drop'].forEach(function (event) {"
+           "form.addEventListener(event, function (e) {"
+           "e.preventDefault();"
+           "e.stopPropagation();"
+           "});"
+           "});"
+           "['dragover', 'dragenter'].forEach(function (event) {"
+           "form.addEventListener(event, function () {"
+           "form.classList.add('is-dragover');"
+           "});"
+           "});"
+           "['dragleave', 'dragend', 'drop'].forEach(function (event) {"
+           "form.addEventListener(event, function () {"
+           "form.classList.remove('is-dragover');"
+           "});"
+           "});"
+           "form.addEventListener('drop', function (e) {"
+           "droppedFiles = e.dataTransfer.files;"
+           "showFiles(droppedFiles);"
+           "triggerFormSubmit();"
+           "});"
+           "}"
+           "form.addEventListener('submit', function (e) {"
+           "if (form.classList.contains('is-uploading')) return false;"
+           "form.classList.add('is-uploading');"
+           "form.classList.remove('is-error');"
+           "if (isAdvancedUpload) {"
+           "e.preventDefault();"
+           "var ajaxData = new FormData(form);"
+           "if (droppedFiles) {"
+           "Array.prototype.forEach.call(droppedFiles, function (file) {"
+           "ajaxData.append(input.getAttribute('name'), file);"
+           "});"
+           "}"
+           "var ajax = new XMLHttpRequest();"
+           "ajax.open(form.getAttribute('method'), form.getAttribute('action'), true);"
+           "ajax.onload = function () {"
+           "form.classList.remove('is-uploading');"
+           "if (ajax.status >= 200 && ajax.status < 400) {"
+           "var data = JSON.parse(ajax.responseText);"
+           "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
+           "if (!data.success) {"
+           "errorMsg.textContent = data.error;"
+           "}"
+           "else {"
+           "reboot();"
+           "}"
+           "}"
+           "else alert('Error. Please, contact the webmaster!');"
+           "};"
+           "ajax.onerror = function () {"
+           "form.classList.remove('is-uploading');"
+           "alert('Error. Please, try again!');"
+           "};"
+           "ajax.send(ajaxData);"
+           "}"
+           "else {"
+           "var iframeName = 'uploadiframe' + new Date().getTime(),"
+           "iframe = document.createElement('iframe');"
+           "$iframe = $('<iframe name=\"' + iframeName + '\" style=\"display: none;\"></iframe>');"
+           "iframe.setAttribute('name', iframeName);"
+           "iframe.style.display = 'none';"
+           "document.body.appendChild(iframe);"
+           "form.setAttribute('target', iframeName);"
+           "iframe.addEventListener('load', function () {"
+           "var data = JSON.parse(iframe.contentDocument.body.innerHTML);"
+           "form.classList.remove('is-uploading');"
+           "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
+           "form.removeAttribute('target');"
+           "if (!data.success) {"
+           "errorMsg.textContent = data.error;"
+           "}"
+           "else {"
+           "reboot();"
+           "}"
+           "iframe.parentNode.removeChild(iframe);"
+           "});"
+           "}"
+           "});"
+           "Array.prototype.forEach.call(restart, function (entry) {"
+           "entry.addEventListener('click', function (e) {"
+           "e.preventDefault();"
+           "form.classList.remove('is-error', 'is-success');"
+           "input.click();"
+           "});"
+           "});"
+           "input.addEventListener('focus', function () { input.classList.add('has-focus'); });"
+           "input.addEventListener('blur', function () { input.classList.remove('has-focus'); });"
+           "});"
+           "}(document, window, 0));"
+           "</script>"
+           "<script>(function (e, t, n) { var r = e.querySelectorAll(\"html\")[0]; r.className = r.className.replace(/(^|\\s)no-js(\\s|$)/, \"$1js$2\") })(document, window, 0);</script>"
+           "</body>"
+           "</html>");
 }
 String GetStyle()
 {
   return F("body {"
-    "    /*padding-top: 60px;*/"
-    "    /*padding-bottom: 60px;*/"
-    "    background: #ffffff;"
-    "    color: #adadad;"
-    "}"
-    ""
-    ".dashed {"
-    "    border-bottom: 2px dashed #737373;"
-    "    background-color: #474747 !important;"
-    "}"
-    ""
-    ".pull-right {"
-    "    float: right;"
-    "}"
-    ""
-    ".pull-left {"
-    "    float: left;"
-    "}"
-    ".container {"
-    "    width: 100%;"
-    "    max-width: 680px; /* 800 */"
-    "    text-align: center;"
-    "    margin: 0 auto;"
-    "}"
-    ""
-    ".boxu {"
-    "    font-size: 1.25rem; /* 20 */"
-    "    background-color: #474747;"
-    "    position: relative;"
-    "    outline: 2px dashed #737373;"
-    "    outline-offset: -10px;"
-    "    padding: 20px 20px;"
-    "}"
-    ""
-    ".box {"
-    "    font-size: 1.25rem; /* 20 */"
-    "    background-color: #474747;"
-    "    position: relative;"
-    "    padding: 100px 20px;"
-    "}"
-    ""
-    "    .box.has-advanced-upload {"
-    "        outline: 2px dashed #737373;"
-    "        outline-offset: -10px;"
-    "    }"
-    ""
-    "    .box.is-dragover {"
-    "        outline-color: #3D3D3D;"
-    "        background-color: #737373;"
-    "    }"
-    ""
-    ".box__dragndrop,"
-    ".box__icon {"
-    "    display: none;"
-    "}"
-    ""
-    ""
-    ".box.has-advanced-upload .box__icon {"
-    "    width: 100%;"
-    "    height: 80px;"
-    "    fill: #737373;"
-    "    display: block;"
-    "    margin-bottom: 40px;"
-    "}"
-    ""
-    ".box.is-uploading .box__input,"
-    ".box.is-success .box__input,"
-    ".box.is-error .box__input {"
-    "    visibility: hidden;"
-    "}"
-    ""
-    ".box__uploading,"
-    ".box__success,"
-    ".box__error {"
-    "    display: none;"
-    "}"
-    ""
-    ".box.is-uploading .box__uploading,"
-    ".box.is-success .box__success,"
-    ".box.is-error .box__error {"
-    "    display: block;"
-    "    position: absolute;"
-    "    top: 50%;"
-    "    right: 0;"
-    "    left: 0;"
-    "    transform: translateY( -50% );"
-    "}"
-    ""
-    ".box__uploading {"
-    "    font-style: italic;"
-    "}"
-    ""
-    ".box__success {"
-    "    -webkit-animation: appear-from-inside .25s ease-in-out;"
-    "    animation: appear-from-inside .25s ease-in-out;"
-    "}"
-    ""
-    ""
-    ".box__restart {"
-    "    font-weight: 700;"
-    "}"
-    ""
-    ".js .box__file {"
-    "    width: 0.1px;"
-    "    height: 0.1px;"
-    "    opacity: 0;"
-    "    overflow: hidden;"
-    "    position: absolute;"
-    "    z-index: -1;"
-    "}"
-    ""
-    "    .js .box__file + label {"
-    "        max-width: 80%;"
-    "        text-overflow: ellipsis;"
-    "        white-space: nowrap;"
-    "        cursor: pointer;"
-    "        display: inline-block;"
-    "        overflow: hidden;"
-    "    }"
-    ""
-    "        .js .box__file + label:hover strong,"
-    "        .box__file:focus + label strong,"
-    "        .box__file.has-focus + label strong {"
-    "            color: #797979;"
-    "        }"
-    ""
-    "    .js .box__file:focus + label,"
-    "    .js .box__file.has-focus + label {"
-    "        outline: 1px dotted #000;"
-    "        outline: -webkit-focus-ring-color auto 5px;"
-    "    }"
-    ""
-    ""
-    ".no-js .box__file + label {"
-    "    display: none;"
-    "}"
-    ""
-    ".no-js .box__button {"
-    "    display: block;"
-    "}"
-    ""
-    ".box__button {"
-    "    font-weight: 700;"
-    "    color: #e5edf1;"
-    "    background-color: #39bfd3;"
-    "    display: none;"
-    "    padding: 8px 16px;"
-    "    margin: 40px auto 0;"
-    "}"
-    ""
-    "    .box__button:hover,"
-    "    .box__button:focus {"
-    "        background-color: #0f3c4b;"
-    "    }");
+           "    /*padding-top: 60px;*/"
+           "    /*padding-bottom: 60px;*/"
+           "    background: #ffffff;"
+           "    color: #adadad;"
+           "}"
+           ""
+           ".dashed {"
+           "    border-bottom: 2px dashed #737373;"
+           "    background-color: #474747 !important;"
+           "}"
+           ""
+           ".pull-right {"
+           "    float: right;"
+           "}"
+           ""
+           ".pull-left {"
+           "    float: left;"
+           "}"
+           ".container {"
+           "    width: 100%;"
+           "    max-width: 680px; /* 800 */"
+           "    text-align: center;"
+           "    margin: 0 auto;"
+           "}"
+           ""
+           ".boxu {"
+           "    font-size: 1.25rem; /* 20 */"
+           "    background-color: #474747;"
+           "    position: relative;"
+           "    outline: 2px dashed #737373;"
+           "    outline-offset: -10px;"
+           "    padding: 20px 20px;"
+           "}"
+           ""
+           ".box {"
+           "    font-size: 1.25rem; /* 20 */"
+           "    background-color: #474747;"
+           "    position: relative;"
+           "    padding: 100px 20px;"
+           "}"
+           ""
+           "    .box.has-advanced-upload {"
+           "        outline: 2px dashed #737373;"
+           "        outline-offset: -10px;"
+           "    }"
+           ""
+           "    .box.is-dragover {"
+           "        outline-color: #3D3D3D;"
+           "        background-color: #737373;"
+           "    }"
+           ""
+           ".box__dragndrop,"
+           ".box__icon {"
+           "    display: none;"
+           "}"
+           ""
+           ""
+           ".box.has-advanced-upload .box__icon {"
+           "    width: 100%;"
+           "    height: 80px;"
+           "    fill: #737373;"
+           "    display: block;"
+           "    margin-bottom: 40px;"
+           "}"
+           ""
+           ".box.is-uploading .box__input,"
+           ".box.is-success .box__input,"
+           ".box.is-error .box__input {"
+           "    visibility: hidden;"
+           "}"
+           ""
+           ".box__uploading,"
+           ".box__success,"
+           ".box__error {"
+           "    display: none;"
+           "}"
+           ""
+           ".box.is-uploading .box__uploading,"
+           ".box.is-success .box__success,"
+           ".box.is-error .box__error {"
+           "    display: block;"
+           "    position: absolute;"
+           "    top: 50%;"
+           "    right: 0;"
+           "    left: 0;"
+           "    transform: translateY( -50% );"
+           "}"
+           ""
+           ".box__uploading {"
+           "    font-style: italic;"
+           "}"
+           ""
+           ".box__success {"
+           "    -webkit-animation: appear-from-inside .25s ease-in-out;"
+           "    animation: appear-from-inside .25s ease-in-out;"
+           "}"
+           ""
+           ""
+           ".box__restart {"
+           "    font-weight: 700;"
+           "}"
+           ""
+           ".js .box__file {"
+           "    width: 0.1px;"
+           "    height: 0.1px;"
+           "    opacity: 0;"
+           "    overflow: hidden;"
+           "    position: absolute;"
+           "    z-index: -1;"
+           "}"
+           ""
+           "    .js .box__file + label {"
+           "        max-width: 80%;"
+           "        text-overflow: ellipsis;"
+           "        white-space: nowrap;"
+           "        cursor: pointer;"
+           "        display: inline-block;"
+           "        overflow: hidden;"
+           "    }"
+           ""
+           "        .js .box__file + label:hover strong,"
+           "        .box__file:focus + label strong,"
+           "        .box__file.has-focus + label strong {"
+           "            color: #797979;"
+           "        }"
+           ""
+           "    .js .box__file:focus + label,"
+           "    .js .box__file.has-focus + label {"
+           "        outline: 1px dotted #000;"
+           "        outline: -webkit-focus-ring-color auto 5px;"
+           "    }"
+           ""
+           ""
+           ".no-js .box__file + label {"
+           "    display: none;"
+           "}"
+           ""
+           ".no-js .box__button {"
+           "    display: block;"
+           "}"
+           ""
+           ".box__button {"
+           "    font-weight: 700;"
+           "    color: #e5edf1;"
+           "    background-color: #39bfd3;"
+           "    display: none;"
+           "    padding: 8px 16px;"
+           "    margin: 40px auto 0;"
+           "}"
+           ""
+           "    .box__button:hover,"
+           "    .box__button:focus {"
+           "        background-color: #0f3c4b;"
+           "    }");
 }
 
 /**************************************************************************
@@ -985,8 +985,8 @@ String GetStyle()
 
 String printDigits2(int digits) // 2 digits
 {
-  String s="";
-  (digits < 10) ? s = "0" + String(digits): s = String(digits);
+  String s = "";
+  (digits < 10) ? s = "0" + String(digits) : s = String(digits);
   return s;
 }
 /**************************************************************************
@@ -995,8 +995,8 @@ String printDigits2(int digits) // 2 digits
 
 String printDigits3(long digits) // 3 digits
 {
-  String s="";
-  (digits < 10) ? s = "00" + String(digits): ((digits < 100) ? s = "0" + String(digits): s = String(digits));
+  String s = "";
+  (digits < 10) ? s = "00" + String(digits) : ((digits < 100) ? s = "0" + String(digits) : s = String(digits));
   return s;
 }
 
@@ -1034,7 +1034,7 @@ int rokuCommand(String ip, String data)
   strncpy(last_send.encoding, "roku", 20);
   strncpy(last_send.address, ip.c_str(), 20);
 
-//  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
+  //  strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
   strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3((millis() % 1000))).c_str(), 13);
   last_send.valid = true;
 
@@ -1168,7 +1168,7 @@ void sendHeader(int httpcode)
   server.sendContent("            <li class='active'>\n");
   server.sendContent("              <a href='/config'>Config</a></li>\n");
   server.sendContent("            <li class='active'>\n");
-  server.sendContent("              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n");
+  server.sendContent("              <a href='#'><span class='glyphicon glyphicon-signal'></span> " + String(WiFi.RSSI()) + " dBm</a></li>\n");
   server.sendContent("          </ul>\n");
   server.sendContent("        </div>\n");
   server.sendContent("      </div><hr />\n");
@@ -1176,33 +1176,33 @@ void sendHeader(int httpcode)
 
 void buildHeader()
 {
-  htmlHeader="<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
-  htmlHeader+="<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
-  htmlHeader+="  <head>\n";
-  htmlHeader+="    <meta name='viewport' content='width=device-width, initial-scale=.75' />\n";
-  htmlHeader+="    <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css' />\n";
-  htmlHeader+="    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n";
-  htmlHeader+="    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n";
-  htmlHeader+="  </head>\n";
-  htmlHeader+="  <body>\n";
-  htmlHeader+="    <div class='container'>\n";
-  htmlHeader+="      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n";
-  htmlHeader+="      <div class='row'>\n";
-  htmlHeader+="        <div class='col-md-12'>\n";
-  htmlHeader+="          <ul class='nav nav-pills'>\n";
-  htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='http://" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "</span></a></li>\n";
-  htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n";
-  htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n";
-  htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='/config'>Config</a></li>\n";
-  htmlHeader+="            <li class='active'>\n";
-  htmlHeader+="              <a href='#'><span class='glyphicon glyphicon-signal'></span> "+ String(WiFi.RSSI()) + " dBm</a></li>\n";
-  htmlHeader+="          </ul>\n";
-  htmlHeader+="        </div>\n";
-  htmlHeader+="      </div><hr />\n";
+  htmlHeader = "<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.0 Strict//EN' 'http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd'>\n";
+  htmlHeader += "<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>\n";
+  htmlHeader += "  <head>\n";
+  htmlHeader += "    <meta name='viewport' content='width=device-width, initial-scale=.75' />\n";
+  htmlHeader += "    <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css' />\n";
+  htmlHeader += "    <style>@media (max-width: 991px) {.nav-pills>li {float: none; margin-left: 0; margin-top: 5px; text-align: center;}}</style>\n";
+  htmlHeader += "    <title>" + FIRMWARE_NAME + " - " + VERSION + "</title>\n";
+  htmlHeader += "  </head>\n";
+  htmlHeader += "  <body>\n";
+  htmlHeader += "    <div class='container'>\n";
+  htmlHeader += "      <h1><a href='https://forum.fhem.de/index.php/topic,72950.0.html'>" + FIRMWARE_NAME + " - " + VERSION + "</a></h1>\n";
+  htmlHeader += "      <div class='row'>\n";
+  htmlHeader += "        <div class='col-md-12'>\n";
+  htmlHeader += "          <ul class='nav nav-pills'>\n";
+  htmlHeader += "            <li class='active'>\n";
+  htmlHeader += "              <a href='http://" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "'>Hostname <span class='badge'>" + String(host_name) + ((setlocal) ? ".local" : "") + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader += "            <li class='active'>\n";
+  htmlHeader += "              <a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "'>Local <span class='badge'>" + ipToString(WiFi.localIP()) + ":" + String(port) + "</span></a></li>\n";
+  htmlHeader += "            <li class='active'>\n";
+  htmlHeader += "              <a href='#'>MAC <span class='badge'>" + String(WiFi.macAddress()) + "</span></a></li>\n";
+  htmlHeader += "            <li class='active'>\n";
+  htmlHeader += "              <a href='/config'>Config</a></li>\n";
+  htmlHeader += "            <li class='active'>\n";
+  htmlHeader += "              <a href='#'><span class='glyphicon glyphicon-signal'></span> " + String(WiFi.RSSI()) + " dBm</a></li>\n";
+  htmlHeader += "          </ul>\n";
+  htmlHeader += "        </div>\n";
+  htmlHeader += "      </div><hr />\n";
 }
 
 /**************************************************************************
@@ -1210,7 +1210,7 @@ void buildHeader()
 **************************************************************************/
 void sendFooter()
 {
-  server.sendContent("      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n");
+  server.sendContent("      <div class='row'><div class='col-md-12'><em>" + String(millis() / 1000) + "s uptime since " + String(boottime) + "</em></div></div>\n");
   server.sendContent("    </div>\n");
   server.sendContent("  </body>\n");
   server.sendContent("</html>\n");
@@ -1222,10 +1222,10 @@ void sendFooter()
 **************************************************************************/
 void buildFooter()
 {
-  htmlFooter="      <div class='row'><div class='col-md-12'><em>" + String(millis()/1000) + "s uptime since " + String(boottime) + "</em></div></div>\n";
-  htmlFooter+="    </div>\n";
-  htmlFooter+="  </body>\n";
-  htmlFooter+="</html>\n";
+  htmlFooter = "      <div class='row'><div class='col-md-12'><em>" + String(millis() / 1000) + "s uptime since " + String(boottime) + "</em></div></div>\n";
+  htmlFooter += "    </div>\n";
+  htmlFooter += "  </body>\n";
+  htmlFooter += "</html>\n";
 }
 
 /**************************************************************************
@@ -1250,61 +1250,65 @@ void sendConfigPage(String message, String header, int type)
 
 void sendConfigPage(String message, String header, int type, int httpcode)
 {
-char passcode_conf[20] = "";
-char host_name_conf[20] = "";
-char port_str_conf[5] = "";
-char ntpserver_conf[30] = "";
+  char passcode_conf[20] = "";
+  char host_name_conf[20] = "";
+  char port_str_conf[5] = "";
+  char ntpserver_conf[30] = "";
 
-//
-// todo
-//
-// config timezone
-// config DST (Sommer-Winter)
-// NTP enabled?
-//
+  //
+  // todo
+  //
+  // config timezone
+  // config DST (Sommer-Winter)
+  // NTP enabled?
+  //
 
-if (type == 1){                                     // save data
-  String message = "WEB: Number of args received:";
-  message += String(server.args()) + "\n";
-  for (int i = 0; i < server.args(); i++) {
-    message += "Arg " + (String)i + " –> ";
-    message += server.argName(i) + ":" ;
-    message += server.arg(i) + "\n";
-  }
-  if (server.hasArg("getTime")) {getTime = true;} else {getTime = false;}
-  strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 20);
-  strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 20);
-  strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
-  strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 30);
+  if (type == 1) {                                    // save data
+    String message = "WEB: Number of args received:";
+    message += String(server.args()) + "\n";
+    for (int i = 0; i < server.args(); i++) {
+      message += "Arg " + (String)i + " –> ";
+      message += server.argName(i) + ":" ;
+      message += server.arg(i) + "\n";
+    }
+    if (server.hasArg("getTime")) {
+      getTime = true;
+    } else {
+      getTime = false;
+    }
+    strncpy(host_name_conf, server.arg("host_name_conf").c_str(), 20);
+    strncpy(passcode_conf, server.arg("passcode_conf").c_str(), 20);
+    strncpy(port_str_conf, server.arg("port_str_conf").c_str(), 5);
+    strncpy(ntpserver_conf, server.arg("ntpserver_conf").c_str(), 30);
 
-  DEBUG_PRINTLN(message);
+    DEBUG_PRINTLN(message);
 
-                            // validate values before saving
-  bool validconf = true;
-  if (validconf)
-  {
-    DEBUG_PRINTLN("SPI: save config.json...");
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
-    json["hostname"] = String(host_name_conf);
-    json["passcode"] = String(passcode_conf);
-    json["port_str"] = String(port_str_conf);
-    json["ntpserver"] = String(ntpserver_conf);
+    // validate values before saving
+    bool validconf = true;
+    if (validconf)
+    {
+      DEBUG_PRINTLN("SPI: save config.json...");
+      DynamicJsonBuffer jsonBuffer;
+      JsonObject& json = jsonBuffer.createObject();
+      json["hostname"] = String(host_name_conf);
+      json["passcode"] = String(passcode_conf);
+      json["port_str"] = String(port_str_conf);
+      json["ntpserver"] = String(ntpserver_conf);
 
-    File configFile = SPIFFS.open("/config.json", "w");
-    if (!configFile) {
-      DEBUG_PRINTLN("SPI: failed to open config file for writing");
+      File configFile = SPIFFS.open("/config.json", "w");
+      if (!configFile) {
+        DEBUG_PRINTLN("SPI: failed to open config file for writing");
+      }
+
+      json.printTo(Serial);
+      DEBUG_PRINTLN("");
+      json.printTo(configFile);
+      configFile.close();
+      //end save
     }
 
-    json.printTo(Serial);
-    DEBUG_PRINTLN("");
-    json.printTo(configFile);
-    configFile.close();
-    //end save
-  }
-
-} else {
-  if (SPIFFS.begin())
+  } else {
+    if (SPIFFS.begin())
     {
       DEBUG_PRINTLN("SPI: mounted file system");
       if (SPIFFS.exists("/config.json"))
@@ -1350,33 +1354,33 @@ if (type == 1){                                     // save data
   //buildJavascript();  //                          javaScript
   buildFooter();      //                          htmlFooter
 
-  htmlDataconf=htmlHeader;
+  htmlDataconf = htmlHeader;
 
   //sendHeader(httpcode);
   if (type == 1)
-    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
+    htmlDataconf += "      <div class='row'><div class='col-md-12'><div class='alert alert-success'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 2)
-    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
+    htmlDataconf += "      <div class='row'><div class='col-md-12'><div class='alert alert-warning'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
   if (type == 3)
-    htmlDataconf+="      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
-  htmlDataconf+="      <div class='row'>\n";
-  htmlDataconf+="<form method='post' action='/config'>";
-  htmlDataconf+="        <div class='col-md-12'>\n";
-  htmlDataconf+="          <h3>Config</h3>\n";
-  htmlDataconf+="          <table class='table table-striped' style='table-layout: fixed;'>\n";
-  htmlDataconf+="            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
-  htmlDataconf+="            <tbody>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Hostname</td><td><code>" + ((host_name_conf[0] == 0 ) ? String("(" + String(host_name) + ")") : String(host_name_conf)) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + ((ntpserver_conf[0] == 0 ) ? String("(" + String(poolServerName) + ")") : String(ntpserver_conf)) + "</code></td><td><input type='text' id='ntpserver_conf' name='ntpserver_conf' value='" + String(ntpserver_conf) + "'></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
-  htmlDataconf+="            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
-  htmlDataconf+="            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
-  htmlDataconf+=" <tr><td colspan='5' class='text-center'><em><a href='/reboot?" + String(port_str_conf) + "' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
-  htmlDataconf+="            </tbody></table>\n";
-  htmlDataconf+="          </div></div>\n";
-  htmlDataconf+=htmlFooter;
+    htmlDataconf += "      <div class='row'><div class='col-md-12'><div class='alert alert-danger'><strong>" + header + "!</strong> " + message + "</div></div></div>\n";
+  htmlDataconf += "      <div class='row'>\n";
+  htmlDataconf += "<form method='post' action='/config'>";
+  htmlDataconf += "        <div class='col-md-12'>\n";
+  htmlDataconf += "          <h3>Config</h3>\n";
+  htmlDataconf += "          <table class='table table-striped' style='table-layout: fixed;'>\n";
+  htmlDataconf += "            <thead><tr><th>Option</th><th>Current Value</th><th>New Value</th></tr></thead>\n"; //Title
+  htmlDataconf += "            <tbody>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>Hostname</td><td><code>" + ((host_name_conf[0] == 0 ) ? String("(" + String(host_name) + ")") : String(host_name_conf)) + "</code></td><td><input type='text' id='host_name_conf' name='host_name_conf' value='" + String(host_name_conf) + "'></td></tr>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>Passcode</td><td><code>" + String(passcode_conf) + "</code></td><td><input type='text' id='passcode_conf' name='passcode_conf' value='" + String(passcode_conf) + "'></td></tr>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>Server Port</td><td><code>" + String(port_str_conf) + "</code></td><td><input type='text' id='port_str_conf' name='port_str_conf' maxlength='5' value='" + String(port_str_conf) + "'></td></tr>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>NTP Server</td><td><code>" + ((ntpserver_conf[0] == 0 ) ? String("(" + String(poolServerName) + ")") : String(ntpserver_conf)) + "</code></td><td><input type='text' id='ntpserver_conf' name='ntpserver_conf' value='" + String(ntpserver_conf) + "'></td></tr>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
+  htmlDataconf += "            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
+  htmlDataconf += "            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
+  htmlDataconf += " <tr><td colspan='5' class='text-center'><em><a href='/reboot?" + String(port_str_conf) + "' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
+  htmlDataconf += "            </tbody></table>\n";
+  htmlDataconf += "          </div></div>\n";
+  htmlDataconf += htmlFooter;
 
   server.send(httpcode, "text/html; charset=utf-8", htmlDataconf);
   server.client().stop();
@@ -1469,63 +1473,63 @@ void sendCodePage(Code& selCode, int httpcode)
   //buildJavascript();  //                          javaScript
   buildFooter();      //                          htmlFooter
 
-  htmlData=htmlHeader;
+  htmlData = htmlHeader;
 
-  htmlData+="      <div class='row'>\n";
-  htmlData+="        <div class='col-md-12'>\n";
-  htmlData+="          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Data</dt>\n";
-  htmlData+="            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Type</dt>\n";
-  htmlData+="            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Length</dt>\n";
-  htmlData+="            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Address</dt>\n";
-  htmlData+="            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Raw</dt>\n";
-  htmlData+="            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n";
-  htmlData+="          <dl class='dl-horizontal'>\n";
-  htmlData+="            <dt>Rawgraph</dt>\n";
-  htmlData+="         <dd><canvas id='myCanvas' width='100' height='100' style='border:1px solid #d3d3d3;>Your browser does not support the canvas element.</canvas></dd></dl>\n";
-  htmlData+="        </div></div>\n";
-  htmlData+="      <div class='row'>\n";
-  htmlData+="        <div class='col-md-12'>\n";
-  htmlData+="          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n";
-  htmlData+="            <input id='data' type='text' name='data' hidden value='" + String(selCode.raw) + "'>\n";
-  htmlData+="      </div></div>\n";
+  htmlData += "      <div class='row'>\n";
+  htmlData += "        <div class='col-md-12'>\n";
+  htmlData += "          <h2><span class='label label-success'>" + String(selCode.data) + ":" + String(selCode.encoding) + ":" + String(selCode.bits) + "</span></h2><br/>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Data</dt>\n";
+  htmlData += "            <dd><code>" + String(selCode.data)  + "</code></dd></dl>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Type</dt>\n";
+  htmlData += "            <dd><code>" + String(selCode.encoding)  + "</code></dd></dl>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Length</dt>\n";
+  htmlData += "            <dd><code>" + String(selCode.bits)  + "</code></dd></dl>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Address</dt>\n";
+  htmlData += "            <dd><code>" + String(selCode.address)  + "</code></dd></dl>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Raw</dt>\n";
+  htmlData += "            <dd><code>" + String(selCode.raw)  + "</code></dd></dl>\n";
+  htmlData += "          <dl class='dl-horizontal'>\n";
+  htmlData += "            <dt>Rawgraph</dt>\n";
+  htmlData += "         <dd><canvas id='myCanvas' width='100' height='100' style='border:1px solid #d3d3d3;>Your browser does not support the canvas element.</canvas></dd></dl>\n";
+  htmlData += "        </div></div>\n";
+  htmlData += "      <div class='row'>\n";
+  htmlData += "        <div class='col-md-12'>\n";
+  htmlData += "          <div class='alert alert-warning'>Don't forget to add your passcode to the URLs below if you set one</div>\n";
+  htmlData += "            <input id='data' type='text' name='data' hidden value='" + String(selCode.raw) + "'>\n";
+  htmlData += "      </div></div>\n";
 
   if (String(selCode.encoding) == "UNKNOWN")
   {
-    htmlData+="      <div class='row'>\n";
-    htmlData+="        <div class='col-md-12'>\n";
-    htmlData+="          <ul class='list-unstyled'>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
-    htmlData+="            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
-    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
-    htmlData+="          </ul>\n";
+    htmlData += "      <div class='row'>\n";
+    htmlData += "        <div class='col-md-12'>\n";
+    htmlData += "          <ul class='list-unstyled'>\n";
+    htmlData += "            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
+    htmlData += "            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
+    htmlData += "            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
+    htmlData += "            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":[" + String(selCode.raw) + "],\"type\":\"raw\",\"khz\":38}]</a></pre></li>\n";
+    htmlData += "          </ul>\n";
   }
   else
   {
-    htmlData+="      <div class='row'>\n";
-    htmlData+="        <div class='col-md-12'>\n";
-    htmlData+="          <ul class='list-unstyled'>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
-    htmlData+="            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
-    htmlData+="            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
-    htmlData+="            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
-    htmlData+="          </ul>\n";
+    htmlData += "      <div class='row'>\n";
+    htmlData += "        <div class='col-md-12'>\n";
+    htmlData += "          <ul class='list-unstyled'>\n";
+    htmlData += "            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item1\")'>Copy to Clipboard</button></li>\n";
+    htmlData += "            <li><pre><a href='http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item1'>http://" + String(host_name) + ((setlocal) ? ".local:" : ":") + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData += "            <li>Local IP <span class='label label-default'>JSON</span> <button class='label btn-primary' onclick='copyclipboard(\"#item2\")'>Copy to Clipboard</button></li>\n";
+    htmlData += "            <li><pre><a href='http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]' id='item2'>http://" + ipToString(WiFi.localIP()) + ":" + String(port) + "/json?plain=[{\"data\":\"" + String(selCode.data) + "\",\"type\":\"" + String(selCode.encoding) + "\",\"length\":" + String(selCode.bits) + "}]</a></pre></li>\n";
+    htmlData += "          </ul>\n";
   }
 
-  htmlData+="        </div>\n";
-  htmlData+="     </div>\n";
-  htmlData+=htmlFooter;
-  htmlData+=buildJavascript();
+  htmlData += "        </div>\n";
+  htmlData += "     </div>\n";
+  htmlData += htmlFooter;
+  htmlData += buildJavascript();
 
   //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
   server.send(httpcode, "text/html; charset=utf-8", htmlData);
@@ -1535,18 +1539,18 @@ void sendCodePage(Code& selCode, int httpcode)
 String buildJavascript()
 {
   return F("<script src='http://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js'></script>"
-  "<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
-  "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
-  "var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "
-  "last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);"
-  "ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); ctx.stroke(); "
-  "for (i = 0;i < dlen;i++){ if (i % 2 === 0){ ctx.moveTo(last,highpos); last += (data[i]); ctx.lineTo(last,highpos); "
-  "ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); "
-  " ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; "
-  "ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; "
-  "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } "
-  "function copyclipboard(element) { var $temp = $('<input>');$('body').append($temp);$temp.val($(element).text()).select();document.execCommand('copy');$temp.remove();}"
-  "</script>");
+           "<script>   window.onload=showdata(); function showdata(data){ var data = document.getElementById('data').value.split(',').map(Number); var downscaleFactor= 0.01; var linebegin = 5; var lineend = 10; var highpos = 10;"
+           "var lowpos = 90; var i = 0; var linespacing = 20; var lastpos = 0; var last = 5/downscaleFactor; var dlen = data.length; "
+           "var canvas = document.getElementById('myCanvas'); var ctx = canvas.getContext('2d'); for (i = 0;i < dlen;i++){ "
+           "last += data[i]; }; canvas.width=((last*downscaleFactor)+(linebegin+lineend)); ctx.scale( downscaleFactor, 1 ); last = linebegin/downscaleFactor; ctx.moveTo(0,lowpos);"
+           "ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); ctx.stroke(); "
+           "for (i = 0;i < dlen;i++){ if (i % 2 === 0){ ctx.moveTo(last,highpos); last += (data[i]); ctx.lineTo(last,highpos); "
+           "ctx.stroke(); ctx.moveTo(last,highpos); ctx.lineTo(last,lowpos); lastpos=lowpos; ctx.stroke(); } else { ctx.moveTo(last,lowpos); last += (data[i]); "
+           " ctx.lineTo(last,lowpos); ctx.stroke(); ctx.moveTo(last,lowpos); ctx.lineTo(last,highpos); lastpos=highpos; ctx.stroke(); } }; "
+           "ctx.moveTo(last,lastpos); ctx.lineTo((last+(lineend/downscaleFactor)),lastpos); ctx.stroke(); ctx.globalAlpha = 0.2; ctx.fillStyle = 'gray'; "
+           "for (i=linebegin;i < canvas.width;i=i+(linespacing*2)){ ctx.fillRect(i/downscaleFactor,0,linespacing/downscaleFactor,canvas.height); ctx.stroke(); } } "
+           "function copyclipboard(element) { var $temp = $('<input>');$('body').append($temp);$temp.val($(element).text()).select();document.execCommand('copy');$temp.remove();}"
+           "</script>");
 }
 
 /**************************************************************************
@@ -1555,24 +1559,24 @@ String buildJavascript()
 void codeJson(JsonObject &codeData, decode_results *results)
 {
   if (results->value)  {
-      codeData["data"] = Uint64toString(results->value, 16);
-      codeData["encoding"] = encoding(results);
-      codeData["bits"] = results->bits;
-      String r = "";
-      for (uint16_t i = 1; i < results->rawlen; i++) {
-        r += results->rawbuf[i] * RAWTICK;
-        if (i < results->rawlen - 1)
-          r += ",";                           // ',' not needed on last one
-        if (!(i & 1)) r += " ";
-      }
-      codeData["uint16_t"] = r;
-      if (results->decode_type != UNKNOWN) {
-        codeData["address"] = "0x" + String(results->address, HEX);
-        codeData["command"] = "0x" + String(results->command, HEX);
-      } else {
-        codeData["address"] = "0x";
-        codeData["command"] = "0x";
-      }
+    codeData["data"] = Uint64toString(results->value, 16);
+    codeData["encoding"] = encoding(results);
+    codeData["bits"] = results->bits;
+    String r = "";
+    for (uint16_t i = 1; i < results->rawlen; i++) {
+      r += results->rawbuf[i] * RAWTICK;
+      if (i < results->rawlen - 1)
+        r += ",";                           // ',' not needed on last one
+      if (!(i & 1)) r += " ";
+    }
+    codeData["uint16_t"] = r;
+    if (results->decode_type != UNKNOWN) {
+      codeData["address"] = "0x" + String(results->address, HEX);
+      codeData["command"] = "0x" + String(results->command, HEX);
+    } else {
+      codeData["address"] = "0x";
+      codeData["command"] = "0x";
+    }
   }
 }
 
@@ -1600,12 +1604,12 @@ void cvrtCode(Code& codeData, decode_results *results)
   strncpy(codeData.encoding, encoding(results).c_str(), 20);
   codeData.bits = results->bits;
   String r = "";
-      for (uint16_t i = 1; i < results->rawlen; i++) {
-      r += results->rawbuf[i] * RAWTICK;
-      if (i < results->rawlen - 1)
-        r += ",";                           // ',' not needed on last one
-      //if (!(i & 1)) r += " ";
-    }
+  for (uint16_t i = 1; i < results->rawlen; i++) {
+    r += results->rawbuf[i] * RAWTICK;
+    if (i < results->rawlen - 1)
+      r += ",";                           // ',' not needed on last one
+    //if (!(i & 1)) r += " ";
+  }
   codeData.raw = r;
   if (results->decode_type != UNKNOWN) {
     strncpy(codeData.address, ("0x" + String(results->address, HEX)).c_str(), 20);
@@ -1727,34 +1731,34 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
 {
   DEBUG_PRINTLN("IR : Blasting off");
   type.toLowerCase();
-/************************************************************************************/
-/* Wandelung String to 64bit für alle Codes                                         */
-/************************************************************************************/
+  /************************************************************************************/
+  /* Wandelung String to 64bit für alle Codes                                         */
+  /************************************************************************************/
   uint64_t data = (uint64_t)strtoull(dataStr.c_str(), NULL, 16);
-/************************************************************************************/
-/* bei RC6 wird bei jedem zweiten senden das Toggle-Bit gekippt                     */
-/* Funktioniert für RC6-Mode6a (36bit) und auch RC6-Mode0 (24bit)                   */
-/************************************************************************************/                
+  /************************************************************************************/
+  /* bei RC6 wird bei jedem zweiten senden das Toggle-Bit gekippt                     */
+  /* Funktioniert für RC6-Mode6a (36bit) und auch RC6-Mode0 (24bit)                   */
+  /************************************************************************************/
   if (type == "rc6" && toggle_RC6)
   {
-    data=irsend.toggleRC6(data, len);
-    toggle_RC6=false;
-  } else toggle_RC6=true;
+    data = irsend.toggleRC6(data, len);
+    toggle_RC6 = false;
+  } else toggle_RC6 = true;
   // Repeat Loop
   for (int r = 0; r < repeat; r++)
   {
     // Pulse Loop
     for (int p = 0; p < pulse; p++)
     {
-/************************************************************************************/                
-/* 64bit print, sonst gibts einen Compilerfehler, wegen uint64_t oben               */
-/************************************************************************************/                
+      /************************************************************************************/
+      /* 64bit print, sonst gibts einen Compilerfehler, wegen uint64_t oben               */
+      /************************************************************************************/
       serialPrintUint64(data, 16);
       Serial.print(":");
       Serial.print(type);
       Serial.print(":");
       Serial.print(len);
-      if (type == "rc6" && toggle_RC6) 
+      if (type == "rc6" && toggle_RC6)
       {
         Serial.print(":");
         Serial.println(toggle_RC6);
@@ -1992,14 +1996,14 @@ void loop()
   decode_results  results;                                       // Somewhere to store the results
   if (irrecv.decode(&results)) {                                  // Grab an IR code
     Serial.print("IR  : Signal received: ");
-    copyCode(last_recv_4,last_recv_5);
-    copyCode(last_recv_3,last_recv_4);
-    copyCode(last_recv_2,last_recv_3);
-    copyCode(last_recv,last_recv_2);
+    copyCode(last_recv_4, last_recv_5);
+    copyCode(last_recv_3, last_recv_4);
+    copyCode(last_recv_2, last_recv_3);
+    copyCode(last_recv, last_recv_2);
     cvrtCode(last_recv, &results);  //error !
 
     // strncpy(last_recv.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);  // Set the new update time
-  strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
+    strncpy(last_recv.timestamp, (printDigits2(hour()) + ":" + printDigits2(minute()) + ":" + printDigits2(second()) + "." + printDigits3(millis() % 1000)).c_str(), 13);
     last_recv.valid = true;
 
     fullCode(&results);
@@ -2024,6 +2028,6 @@ void loop()
 
     if (command == "reset") Handle_ResetWiFi();
   }
-    yield();
-    now();
+  yield();
+  now();
 }
