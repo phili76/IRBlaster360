@@ -1,7 +1,11 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.6                                                         */
+/*     IR_Blaster_360 2.7.6.d                                                       */
 /*                                                                                  */
+/*  https://github.com/JoergBo/IRBlaster360                                         */
+/*  Stand: 17.02.2019                                                               */
+/*                                                                                  */
+/*  https://github.com/FranziHH/IRBlaster360                                        */                                     
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
@@ -44,7 +48,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.6";
+const String VERSION       = "v2.7.6.d";
 
 /**************************************************************************
    Debug
@@ -105,6 +109,7 @@ bool shouldSaveConfig = false;                                // Flag for saving
 #define RAWBUF 100U    // larger buffer
 IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
+bool toggle_RC6=false;
 
 // multicast
 bool setlocal = true;                // append .local, false to disable
@@ -454,7 +459,8 @@ void setup()
             rokuCommand(ip, data);
           } else {
             String data = root[x]["data"];
-            long address = root[x]["address"];
+            String address = root[x]["address"];
+            if (address == "") address = "0";
             int len = root[x]["length"];
             irblast(type, data, len, rdelay, pulse, pdelay, repeat, address);
           }
@@ -1712,32 +1718,6 @@ void dumpCode(decode_results *results)
   }
 }
 
-/**************************************************************************
-   Convert string to hex
-**************************************************************************/
-unsigned long HexToLongInt(String h)
-{
-  // this function replace the strtol as this function is not able to handle hex numbers greather than 7fffffff
-  // I'll take char by char converting from hex to char then shifting 4 bits at the time
-  int i;
-  unsigned long tmp = 0;
-  unsigned char c;
-  int s = 0;
-  h.toUpperCase();
-  for (i = h.length() - 1; i >= 0 ; i--)
-  {
-    // take the char starting from the right
-    c = h[i];
-    // convert from hex to int
-    c = c - '0';
-    if (c > 9)
-      c = c - 7;
-    // add and shift of 4 bits per each char
-    tmp += c << s;
-    s += 4;
-  }
-  return tmp;
-}
 
 /**************************************************************************
    Send IR code
@@ -1746,18 +1726,39 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
 {
   DEBUG_PRINTLN("IR : Blasting off");
   type.toLowerCase();
-  unsigned long data = HexToLongInt(dataStr);
+/************************************************************************************/
+/* Wandelung String to 64bit für alle Codes                                         */
+/************************************************************************************/
+  uint64_t data = (uint64_t)strtoull(dataStr.c_str(), NULL, 16);
+/************************************************************************************/
+/* bei RC6 wird bei jedem zweiten senden das Toggle-Bit gekippt                     */
+/* Funktioniert für RC6-Mode6a (36bit) und auch RC6-Mode0 (24bit)                   */
+/************************************************************************************/                
+  if (type == "rc6" && toggle_RC6)
+  {
+    data=irsend.toggleRC6(data, len);
+    toggle_RC6=false;
+  } else toggle_RC6=true;
   // Repeat Loop
   for (int r = 0; r < repeat; r++)
   {
     // Pulse Loop
     for (int p = 0; p < pulse; p++)
     {
-      Serial.print(data, HEX);
+/************************************************************************************/                
+/* 64bit print, sonst gibts einen Compilerfehler, wegen uint64_t oben               */
+/************************************************************************************/                
+      serialPrintUint64(data, 16);
       Serial.print(":");
       Serial.print(type);
       Serial.print(":");
-      Serial.println(len);
+      Serial.print(len);
+      if (type == "rc6" && toggle_RC6) 
+      {
+        Serial.print(":");
+        Serial.println(toggle_RC6);
+      } else Serial.println(" ");
+
       if (type == "nec") {
         irsend.sendNEC(data, len);
       } else if (type == "sony") {
@@ -1770,7 +1771,7 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
         Serial.println(address);
         irsend.sendPanasonic(address, data);
       } else if (type == "jvc") {
-        irsend.sendJVC(data, len, 0);
+        irsend.sendJVC(data, len, 1);
       } else if (type == "samsung") {
         irsend.sendSAMSUNG(data, len);
       } else if (type == "sharp") {
