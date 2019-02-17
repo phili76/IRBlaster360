@@ -2,10 +2,11 @@
 /*                                                                                  */
 /*     IR_Blaster_360 2.7.6.d                                                       */
 /*                                                                                  */
-/*  https://github.com/JoergBo/IRBlaster360                                         */
-/*  Stand: 17.02.2019                                                               */
+/*  Bugsfixes Stand 17.02.2019                                                      */
+/*  https://github.com/JoergBo/IRBlaster360 (RC6 send)                              */
+/*  https://github.com/FranziHH/IRBlaster360  (JVC send, Panasonic send)            */                                     
 /*                                                                                  */
-/*  https://github.com/FranziHH/IRBlaster360                                        */                                     
+/*  Main work:                                                                      */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
