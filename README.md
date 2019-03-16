@@ -5,15 +5,29 @@ ESP8266 IR Blaster with FHEM Integration
 
 ## New Features
 
-* wireless signal strength on page
-* copy url to clipboard
-* webserver port configurable
-* reboot button redirects to new webserver port
+* Daikin AC Sending (work in progress) 
+>http://irblaster.local/json?plain=[{"type":"ac","acmode":"5","acfan":5,"actemp":32,"acpower":on,"acswingv":1,"acswingh":0}]
+
+Options:  
+- acmode: 0 Auto, 1 Cool, 2 Heat, 3 Fan, 4 Dry
+- acfan:  0 Auto, 1-5 Fanspeed, 6 Quiet
+- actemp: 10-32 , set temp in Celsius
+- acpower: on or off
+- acswingv: 1 for vertical swing
+- acswingh: 1 for horizontal swing
+
+TODO:
+- timed poweron/off
+- Powerful, Sensor, Eco
 
 ![rawgraph](/images/rawgraph.png)
 
 ## Features
 
+* wireless signal strength on page
+* copy url to clipboard
+* webserver port configurable
+* reboot button redirects to new webserver port
 * rawgraph to visualisize ir data
 * update & reboot button on config page
 * rewrite html creation to speed up javascript execution
