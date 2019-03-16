@@ -1,6 +1,6 @@
 /************************************************************************************/
 /*                                                                                  */
-/*     IR_Blaster_360 2.7.6d                                                        */
+/*     IR_Blaster_360 2.7.6e                                                        */
 /*  Changes:                                                                        */
 /*    https://github.com/JoergBo/IRBlaster360  (RC6 Send)                           */
 /*    https://github.com/FranziHH/IRBlaster360 (Address in HEX, JVC send twice)     */
@@ -47,7 +47,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.6d";
+const String VERSION       = "v2.7.6e";
 
 /**************************************************************************
    Debug
@@ -466,6 +466,8 @@ void setup()
 
           if (x + 1 < root.size())
           {
+            Serial.print("cdelay : ");
+            Serial.println(cdelay);
             DEBUG_PRINTLN("IR : wait between two commands");
             delay(cdelay);
           }
@@ -1857,7 +1859,7 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   copyCode(last_send, last_send_2);
 
   strncpy(last_send.data, "", 16);
-  last_send.bits = raw.size();
+  last_send.bits = raw.size() >> 1;        // divide by 2 to overcome 1pulse 1pause = 1 bit
   strncpy(last_send.encoding, "RAW", 20);
   strncpy(last_send.address, "0x0", 20);
   //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
