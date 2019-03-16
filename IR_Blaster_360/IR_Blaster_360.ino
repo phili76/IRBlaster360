@@ -1216,6 +1216,7 @@ void sendFooter()
   server.sendContent("    </div>\n");
   server.sendContent("  </body>\n");
   server.sendContent("</html>\n");
+  server.sendContent("");   // Chrome problem net::ERR_INCOMPLETE_CHUNKED_ENCODING, fix to send "" https://www.esp8266.com/viewtopic.php?p=66825
   server.client().stop();
 }
 
@@ -1381,6 +1382,7 @@ if (type == 1){                                     // save data
   htmlDataconf+=htmlFooter;
 
   server.send(httpcode, "text/html; charset=utf-8", htmlDataconf);
+  server.sendContent("");   // Chrome problem net::ERR_INCOMPLETE_CHUNKED_ENCODING, fix to send "" https://www.esp8266.com/viewtopic.php?p=66825
   server.client().stop();
 
 }
@@ -1531,6 +1533,7 @@ void sendCodePage(Code& selCode, int httpcode)
 
   //server.setContentLength(CONTENT_LENGTH_UNKNOWN);   //timeout 2sec before javascritp start!
   server.send(httpcode, "text/html; charset=utf-8", htmlData);
+  server.sendContent("");   // Chrome problem net::ERR_INCOMPLETE_CHUNKED_ENCODING, fix to send "" https://www.esp8266.com/viewtopic.php?p=66825
   server.client().stop();
 }
 
