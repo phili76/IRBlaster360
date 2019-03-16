@@ -35,6 +35,7 @@
 #include <Ticker.h>
 //#include <Dns.h>
 #include <TimeLib.h>
+#include <ir_Daikin.h>
 
 
 /**************************************************************************
@@ -108,6 +109,8 @@ bool shouldSaveConfig = false;                                // Flag for saving
 #define RAWBUF 100U    // larger buffer
 IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
+IRDaikinESP ac(IR_SEND_PIN);  // Set the GPIO to be used to sending the message
+
 bool toggle_RC6=false;
 
 // multicast
@@ -456,7 +459,59 @@ void setup()
           } else if (type == "roku") {
             String data = root[x]["data"];
             rokuCommand(ip, data);
-          } else {
+          } else if (type == "ac") {
+            String acpower = root[x]["acpower"];
+            uint8_t actemp = root[x]["actemp"];
+            uint8_t acmode = root[x]["acmode"];
+            uint8_t acfan = root[x]["acfan"];
+            bool acswingv = root[x]["acswingv"];
+            bool acswingh = root[x]["acswingh"];
+
+            (acpower == "on") ? ac.on() : ac.off();
+            if (actemp < 10 || actemp > 32) actemp=25;
+            ac.setTemp(actemp);
+
+            switch (acmode) {
+              default:
+              case 0:       acmode = kDaikinAuto;          break;
+              case 1:       acmode = kDaikinCool;          break;
+              case 2:       acmode = kDaikinHeat;          break;
+              case 3:       acmode = kDaikinFan;           break;
+              case 4:       acmode = kDaikinDry;           break;
+            }
+            ac.setMode(acmode);
+
+            switch (acfan) {
+              default:
+              case 0:         acfan = kDaikinFanAuto;          break;
+              case 1:         acfan = 1;                       break;
+              case 2:         acfan = 2;                       break;
+              case 3:         acfan = 3;                       break;
+              case 4:         acfan = 4;                       break;
+              case 5:         acfan = 5;                       break;
+              case 6:         acfan = kDaikinFanQuiet;         break;
+            }
+            ac.setFan(acfan);
+
+            ac.setSwingVertical(acswingv);
+            ac.setSwingHorizontal(acswingh);
+
+            // Set the current time to 1:33PM (13:33)
+            // Time works in minutes past midnight
+            //ac.setCurrentTime(13 * 60 + 33);
+            ac.setCurrentTime(hour() * 60 + minute());
+            // Turn off about 1 hour later at 2:30PM (14:30)
+            //ac.enableOffTimer(14 * 60 + 30);
+
+            // Display what we are going to send.
+            Serial.println(ac.toString());
+
+            // Now send the IR signal.
+            #if SEND_DAIKIN
+            ac.send();
+            #endif  // SEND_DAIKIN
+          }
+          else {
             String data = root[x]["data"];
             String addressString = root[x]["address"];                // Show device address when protocol supports it, see
             long address = strtoul(addressString.c_str(), 0, 0);      // https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster/blob/0fa16c8bb64df026ccf289550d2c4a4967902afb/src/IRController.ino#L690-L691
@@ -531,6 +586,7 @@ void setup()
 
     // initialize the IR interface
     irsend.begin();
+    ac.begin();
     irrecv.enableIRIn();
     DEBUG_PRINTLN("SYS: Ready to send and receive IR signals");
 
