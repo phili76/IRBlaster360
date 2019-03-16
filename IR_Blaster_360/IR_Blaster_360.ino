@@ -1,17 +1,19 @@
 /************************************************************************************/
 /*                                                                                  */
 /*     IR_Blaster_360 2.7.6.d                                                       */
-/*  Änderungen:                                                                     */
+/*  Changes:                                                                        */
 /*    https://github.com/JoergBo/IRBlaster360  (RC6 Send)                           */
+/*    https://github.com/FranziHH/IRBlaster360 (Address in HEX, JVC send twice)     */
 /*                                                                                  */
-/*                                                                                  */
+/*    websockets work in progress                                                   */
+/*    upload files at http://x.x.x.x/uploadfile                                     */
 /*                                                                                  */
 /*  https://github.com/phili76/IRBlaster360                                         */
 /*                                                                                  */
 /*  https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster                            */
-/*  Stand: 03.01.2017                                                               */
+/*  Date: 03.01.2017                                                                */
 /*                                                                                  */
-/*  Bibliotheken:                                                                   */
+/*  library:                                                                        */
 /*    ArduinoJson                                                                   */
 /*    NTPClient                                                                     */
 /*    IRremoteESP8266                                                               */
@@ -47,7 +49,7 @@
 #define LED_PIN         D2
 
 const String FIRMWARE_NAME = "IR Blaster 360";
-const String VERSION       = "v2.7.7";
+const String VERSION       = "v2.7.6d";
 
 /**************************************************************************
    Debug
@@ -467,7 +469,7 @@ void setup()
             rokuCommand(ip, data);
           } else {
             String data = root[x]["data"];
-            String addressString = root[x]["address"];                // Show device adderss when protocol supports it, see
+            String addressString = root[x]["address"];                // Show device address when protocol supports it, see
             long address = strtoul(addressString.c_str(), 0, 0);      // https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster/blob/0fa16c8bb64df026ccf289550d2c4a4967902afb/src/IRController.ino#L690-L691
             int len = root[x]["length"];
             irblast(type, data, len, rdelay, pulse, pdelay, repeat, address);
