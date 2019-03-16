@@ -470,7 +470,7 @@ void setup()
           } else {
             String data = root[x]["data"];
             String addressString = root[x]["address"];                // Show device address when protocol supports it, see
-            long address = strtoul(addressString.c_str(), 0, 0);      // https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster/blob/0fa16c8bb64df026ccf289550d2c4a4967902afb/src/IRController.ino#L690-L691
+            long address = strtoul(addressString.c_str(), 0, 16);      // https://github.com/mdhiggins/ESP8266-HTTP-IR-Blaster/blob/0fa16c8bb64df026ccf289550d2c4a4967902afb/src/IRController.ino#L690-L691
             int len = root[x]["length"];
             irblast(type, data, len, rdelay, pulse, pdelay, repeat, address);
           }
@@ -1780,7 +1780,8 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
       } else if (type == "whynter") {
         irsend.sendWhynter(data, len);
       } else if (type == "panasonic") {
-        Serial.println(address);
+        Serial.print("Device address: 0x");
+        Serial.println(address, HEX);
         irsend.sendPanasonic(address, data);
       } else if (type == "jvc") {
         irsend.sendJVC(data, len, 1);     //  sent code twice
