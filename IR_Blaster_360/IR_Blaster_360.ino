@@ -477,7 +477,10 @@ void setup()
 
           if (x + 1 < root.size())
           {
+            Serial.print("cdelay : ");
+            Serial.println(cdelay);
             DEBUG_PRINTLN("IR : wait between two commands");
+
             delay(cdelay);
           }
         }
@@ -1871,7 +1874,7 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
   copyCode(last_send, last_send_2);
 
   strncpy(last_send.data, "", 16);
-  last_send.bits = raw.size();
+  last_send.bits = raw.size() >> 1;        // divide by 2 to overcome 1pulse 1pause = 1 bit
   strncpy(last_send.encoding, "RAW", 20);
   strncpy(last_send.address, "0x0", 20);
   //strncpy(last_send.timestamp, String(timeClient.getFormattedTime()).c_str(), 40);
