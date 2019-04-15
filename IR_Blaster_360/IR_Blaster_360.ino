@@ -37,12 +37,13 @@
 #include <Ticker.h>
 //#include <Dns.h>
 #include <TimeLib.h>
+#include <WiFiClient.h>
 
 
 /**************************************************************************
    Defines
 **************************************************************************/
-//#define DEBUG
+#define DEBUG
 #define IR_SEND_PIN     D1
 #define IR_RECEIVE_PIN  D4
 #define CONFIG_PIN      D7
@@ -70,6 +71,10 @@ char passcode[20] = "";
 char host_name[20] = "";
 char port_str[5] = "80";
 char ntpserver[30] = "";
+
+//holds the current upload
+File fsUploadFile;
+bool UploadOK = false;
 
 class Code
 {
@@ -107,7 +112,7 @@ bool shouldSaveConfig = false;                                // Flag for saving
 
 // ir
 #define TIMEOUT 15U    // capture long ir telegrams, e.g. AC
-#define RAWBUF 100U    // larger buffer
+#define RAWBUF 500U    // larger buffer
 IRrecv irrecv(IR_RECEIVE_PIN, RAWBUF, TIMEOUT);
 IRsend irsend(IR_SEND_PIN);
 bool toggle_RC6 = false;
@@ -458,6 +463,47 @@ void setup()
         } else if (type == "roku") {
           String data = root[x]["data"];
           rokuCommand(ip, data);
+        } else if (type.startsWith("custom")){
+          String file = root[x]["file"];  //get the Filename to open
+          File IRFile = SPIFFS.open("/" + file, "r");
+          if (!IRFile)
+          {
+            DEBUG_PRINTLN("Failed to open " + file);
+          } else {
+            String data = root[x]["data"];  //get the SignalName to search
+            char databuf[20];
+            data.toCharArray(databuf, data.length());
+            bool found = IRFile.find(databuf);  //Search the Signalname in the file and set pointer to it
+            if (found) {
+              String content = IRFile.readStringUntil(']'); // Read Data until ]
+              content.trim();
+              int DataStart = 2;  // The Pointer in the file was set to the last char of the SignalName, so the Data start at the 3. Char
+              int EndOfData = content.length();
+              DynamicJsonBuffer jsonBuffer2;            
+              JsonObject& root2 = jsonBuffer2.createObject();            
+              JsonArray& rawdata = root2.createNestedArray("rawdata");            
+              int iend = 0;
+              while(DataStart < EndOfData){
+                iend = content.indexOf(",",DataStart);
+                if (iend < DataStart) { //If it's searching the last Data, iend is set to the first , because indexOf seems to begin again at the beginning if it can not find from the from Point to the end, so we have to set it to EndOfData
+                  iend = EndOfData;
+                }
+                rawdata.add(content.substring(DataStart ,iend).toInt()); //Adding Data to the Json Array
+                DataStart = iend + 1;
+              }
+              DEBUG_PRINT("Found following RAW Data in File ");
+              DEBUG_PRINTLN(file);
+              #ifdef DEBUG
+                root2.printTo(Serial);
+              #endif
+              DEBUG_PRINTLN(" ");
+              int khz = root[x]["khz"];
+              if (khz <= 0) khz = 38; // Default to 38khz if not set
+              rawblast(rawdata, khz, rdelay, pulse, pdelay, repeat);
+              
+            }
+            IRFile.close();
+          }
         } else {
           String data = root[x]["data"];
           long address = root[x]["address"];
@@ -507,6 +553,10 @@ void setup()
   server.on("/upload", Handle_upload);
 
   server.on("/update", HTTP_POST, Handle_update, FlashESP);
+
+  server.on("/uploadIRCodes", Handle_uploadIR);
+
+  server.on("/uploadIR", HTTP_POST, Handle_upload_IR, handleFileUpload);
 
   server.on("/style", Handle_Style);
 
@@ -614,6 +664,31 @@ void FlashESP()
       Serial.setDebugOutput(false);
     }
     yield();
+  }
+}
+
+void handleFileUpload() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+
+    String filename = upload.filename;
+    if (!filename.startsWith("/")) {
+      filename = "/" + filename;
+    }
+    DEBUG_PRINT("handleFileUpload Name: "); DEBUG_PRINTLN(filename);
+    fsUploadFile = SPIFFS.open(filename, "w");
+    filename = String();
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    //DEBUG_PRINT("handleFileUpload Data: "); DEBUG_PRINTLN(upload.currentSize);
+    if (fsUploadFile) {
+      fsUploadFile.write(upload.buf, upload.currentSize);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (fsUploadFile) {
+      fsUploadFile.close();
+      UploadOK = true;
+    }
+    DEBUG_PRINT("handleFileUpload Size: "); DEBUG_PRINTLN(upload.totalSize);
   }
 }
 
@@ -820,6 +895,202 @@ String GetUploadHTML()
            "</body>"
            "</html>");
 }
+
+void Handle_uploadIR()
+{
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/html", GetUploadIRHTML());
+}
+
+void Handle_upload_IR()
+{
+  DEBUG_PRINTLN("handle_upload call");
+  server.sendHeader("Connection", "close");
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "application/json", "{\"success\":true}");
+
+  server.send(200, "application/json", (UploadOK) ? "{\"success\":false}" : "{\"success\":true}");
+
+  UploadOK = false;
+
+}
+
+String GetUploadIRHTML()
+{
+  return F("<!DOCTYPE html>"
+           "<html lang=\"en\" class=\"no-js\">"
+           "<head>"
+           "<meta charset=\"utf-8\">"
+           "<title>IR - Code Upload</title>"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\" />"
+           "<link href=\"./style\" rel=\"stylesheet\">"
+           "</head>"
+           "<body>"
+           "<div class=\"container\" role=\"main\">"
+           "<h1><b>ESP8266 IR Controller - IR Code Uploader</b></h1>"
+           "<form method=\"post\" action=\"/uploadIR\" enctype=\"multipart/form-data\" novalidate class=\"box\">"
+           "<div class=\"box__input\">"
+           "<svg class=\"box__icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"50\" height=\"43\" viewBox=\"0 0 50 43\">"
+           "<path d=\"M48.4 26.5c-.9 0-1.7.7-1.7 1.7v11.6h-43.3v-11.6c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7 1.7v13.2c0"
+           " .9.7 1.7 1.7 1.7h46.7c.9 0 1.7-.7 1.7-1.7v-13.2c0-1-.7-1.7-1.7-1.7zm-24.5 6.1c.3.3.8.5 1.2.5.4 0"
+           " .9-.2 1.2-.5l10-11.6c.7-.7.7-1.7 0-2.4s-1.7-.7-2.4 0l-7.1 8.3v-25.3c0-.9-.7-1.7-1.7-1.7s-1.7.7-1.7"
+           " 1.7v25.3l-7.1-8.3c-.7-.7-1.7-.7-2.4 0s-.7 1.7 0 2.4l10 11.6z\" /></svg>"
+           "<input type=\"file\" name=\"update\" id=\"file\" class=\"box__file\" />"
+           "<label for=\"file\">"
+           "<strong>Select a IR Code File...</strong>"
+           "<br /><span class=\"\"> or drop it here</span>."
+           "</label>"
+           "<button type=\"submit\" class=\"box__button\">Upload</button>"
+           "</div>"
+           "<div class=\"box__uploading\">Uploading&hellip;</div>"
+           "<div class=\"box__success\">"
+           "Complete!<br />"
+           "<progress value=\"0\" max=\"15\" id=\"progressBar\"></progress>"
+           "</div>"
+           "<div class=\"box__error\">Error! <span></span>.</div>"
+           "</form>"
+           "<footer></footer>"
+           "</div>"
+           "<script>"
+           "function reboot() {"
+           "var timeleft = 15;"
+           "var downloadTimer = setInterval(function () {"
+           "document.getElementById(\"progressBar\").value = 15 - --timeleft;"
+           "if (timeleft <= 0) {"
+           "clearInterval(downloadTimer);"
+           "window.location.href = \"/\";"
+           "}"
+           "}, 1000);"
+           "}"
+           "'use strict';"
+           "; (function (document, window, index) {"
+           "var isAdvancedUpload = function () {"
+           "var div = document.createElement('div');"
+           "return (('draggable' in div) || ('ondragstart' in div && 'ondrop' in div)) && 'FormData' in window && 'FileReader' in window;"
+           "}();"
+           "var forms = document.querySelectorAll('.box');"
+           "Array.prototype.forEach.call(forms, function (form) {"
+           "var input = form.querySelector('input[type=\"file\"]'),"
+           "label = form.querySelector('label'),"
+           "errorMsg = form.querySelector('.box__error span'),"
+           "restart = form.querySelectorAll('.box__restart'),"
+           "droppedFiles = false,"
+           "showFiles = function (files) {"
+           "label.textContent = files.length > 1 ? (input.getAttribute('data-multiple-caption') || '').replace('{count}', files.length) : files[0].name;"
+           "},"
+           "triggerFormSubmit = function () {"
+           "var event = document.createEvent('HTMLEvents');"
+           "event.initEvent('submit', true, false);"
+           "form.dispatchEvent(event);"
+           "};"
+           "var ajaxFlag = document.createElement('input');"
+           "ajaxFlag.setAttribute('type', 'hidden');"
+           "ajaxFlag.setAttribute('name', 'ajax');"
+           "ajaxFlag.setAttribute('value', 1);"
+           "form.appendChild(ajaxFlag);"
+           "input.addEventListener('change', function (e) {"
+           "showFiles(e.target.files);"
+           "triggerFormSubmit();"
+           "});"
+           "if (isAdvancedUpload) {"
+           "form.classList.add('has-advanced-upload');"
+           "['drag', 'dragstart', 'dragend', 'dragover', 'dragenter', 'dragleave', 'drop'].forEach(function (event) {"
+           "form.addEventListener(event, function (e) {"
+           "e.preventDefault();"
+           "e.stopPropagation();"
+           "});"
+           "});"
+           "['dragover', 'dragenter'].forEach(function (event) {"
+           "form.addEventListener(event, function () {"
+           "form.classList.add('is-dragover');"
+           "});"
+           "});"
+           "['dragleave', 'dragend', 'drop'].forEach(function (event) {"
+           "form.addEventListener(event, function () {"
+           "form.classList.remove('is-dragover');"
+           "});"
+           "});"
+           "form.addEventListener('drop', function (e) {"
+           "droppedFiles = e.dataTransfer.files;"
+           "showFiles(droppedFiles);"
+           "triggerFormSubmit();"
+           "});"
+           "}"
+           "form.addEventListener('submit', function (e) {"
+           "if (form.classList.contains('is-uploading')) return false;"
+           "form.classList.add('is-uploading');"
+           "form.classList.remove('is-error');"
+           "if (isAdvancedUpload) {"
+           "e.preventDefault();"
+           "var ajaxData = new FormData(form);"
+           "if (droppedFiles) {"
+           "Array.prototype.forEach.call(droppedFiles, function (file) {"
+           "ajaxData.append(input.getAttribute('name'), file);"
+           "});"
+           "}"
+           "var ajax = new XMLHttpRequest();"
+           "ajax.open(form.getAttribute('method'), form.getAttribute('action'), true);"
+           "ajax.onload = function () {"
+           "form.classList.remove('is-uploading');"
+           "if (ajax.status >= 200 && ajax.status < 400) {"
+           "var data = JSON.parse(ajax.responseText);"
+           "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
+           "if (!data.success) {"
+           "errorMsg.textContent = data.error;"
+           "}"
+           "else {"
+           "reboot();"
+           "}"
+           "}"
+           "else alert('Error. Please, contact the webmaster!');"
+           "};"
+           "ajax.onerror = function () {"
+           "form.classList.remove('is-uploading');"
+           "alert('Error. Please, try again!');"
+           "};"
+           "ajax.send(ajaxData);"
+           "}"
+           "else {"
+           "var iframeName = 'uploadiframe' + new Date().getTime(),"
+           "iframe = document.createElement('iframe');"
+           "$iframe = $('<iframe name=\"' + iframeName + '\" style=\"display: none;\"></iframe>');"
+           "iframe.setAttribute('name', iframeName);"
+           "iframe.style.display = 'none';"
+           "document.body.appendChild(iframe);"
+           "form.setAttribute('target', iframeName);"
+           "iframe.addEventListener('load', function () {"
+           "var data = JSON.parse(iframe.contentDocument.body.innerHTML);"
+           "form.classList.remove('is-uploading');"
+           "form.classList.add(data.success == true ? 'is-success' : 'is-error');"
+           "form.removeAttribute('target');"
+           "if (!data.success) {"
+           "errorMsg.textContent = data.error;"
+           "}"
+           "else {"
+           "reboot();"
+           "}"
+           "iframe.parentNode.removeChild(iframe);"
+           "});"
+           "}"
+           "});"
+           "Array.prototype.forEach.call(restart, function (entry) {"
+           "entry.addEventListener('click', function (e) {"
+           "e.preventDefault();"
+           "form.classList.remove('is-error', 'is-success');"
+           "input.click();"
+           "});"
+           "});"
+           "input.addEventListener('focus', function () { input.classList.add('has-focus'); });"
+           "input.addEventListener('blur', function () { input.classList.remove('has-focus'); });"
+           "});"
+           "}(document, window, 0));"
+           "</script>"
+           "<script>(function (e, t, n) { var r = e.querySelectorAll(\"html\")[0]; r.className = r.className.replace(/(^|\\s)no-js(\\s|$)/, \"$1js$2\") })(document, window, 0);</script>"
+           "</body>"
+           "</html>");
+}
+
+
 String GetStyle()
 {
   return F("body {"
@@ -1060,6 +1331,24 @@ String getValue(String data, char separator, int index)
   }
 
   return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+/**************************************************************************
+   Split string by parametername
+**************************************************************************/
+
+String getParam(String data, String param, String endchar){
+  String par="";
+  int i1;
+  int i2;
+
+  i1 = data.indexOf(param);
+  if (i1 >= 0) {  
+    i1 = i1 + param.length();
+    i2 = data.indexOf(endchar, i1);
+    par =  i2 > i1 ? data.substring(i1 ,i2) : data.substring(i1);    
+  }
+  return par;
 }
 
 /**************************************************************************
@@ -1377,7 +1666,7 @@ void sendConfigPage(String message, String header, int type, int httpcode)
   htmlDataconf += "            <tr class='text-uppercase'><td>NTP enabled?</td><td><code>" + (getTime ? String("Yes") : String("No")) + "</code></td><td></td></tr>\n"; //<input type='checkbox' id='ntpok' name='getTime' checked='" + (getTime ? String("true") : String("false")) + "'>
   htmlDataconf += "            <tr class='text-uppercase'><td>IR Timeout</td><td><code>" + String(TIMEOUT) + "</code></td><td></td></tr>\n";
   htmlDataconf += "            <tr class='text-uppercase'><td>IR Buffer Length</td><td><code>" + String(RAWBUF) + "</code></td><td></td></tr>\n";
-  htmlDataconf += " <tr><td colspan='5' class='text-center'><em><a href='/reboot?" + String(port_str_conf) + "' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
+  htmlDataconf += " <tr><td colspan='5' class='text-center'><em><a href='/reboot?" + String(port_str_conf) + "' class='btn btn-sm btn-danger'>Reboot</a>  <a href='/upload' class='btn btn-sm btn-warning'>Update</a>  <a href='/uploadIRCodes' class='btn btn-sm btn-warning'>Upload IR Codes</a>  <button type='submit' class='btn btn-sm btn-primary'>Save</button>  <a href='/' class='btn btn-sm btn-primary'>Cancel</a></em></td></tr>";
   htmlDataconf += "            </tbody></table>\n";
   htmlDataconf += "          </div></div>\n";
   htmlDataconf += htmlFooter;
@@ -1824,7 +2113,6 @@ void irblast(String type, String dataStr, unsigned int len, int rdelay, int puls
 void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int repeat)
 {
   DEBUG_PRINTLN("IR : Raw transmit");
-
   // Repeat Loop
   for (int r = 0; r < repeat; r++) {
     // Pulse Loop
@@ -1833,11 +2121,9 @@ void rawblast(JsonArray &raw, int khz, int rdelay, int pulse, int pdelay, int re
       irsend.enableIROut(khz);
       int first_temp = raw[0];
       int first = abs(first_temp);
-
       for (unsigned int i = 0; i < raw.size(); i++) {
         int val_temp = raw[i];
         unsigned int val = abs(val_temp);
-
         if (i & 1) irsend.space(val);
         else       irsend.mark(val);
       }
