@@ -6,3 +6,5 @@
 *.elf
 .pioenvs
 .piolibdeps
+.vscode
+.pio
