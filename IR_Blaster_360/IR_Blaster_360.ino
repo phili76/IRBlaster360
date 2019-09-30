@@ -55,9 +55,6 @@ const String VERSION       = "v2.7.6e";
 #ifdef DEBUG
 #define DEBUG_PRINT(x)  Serial.print (x)
 #define DEBUG_PRINTLN(x)  Serial.println (x)
-#else
-#define DEBUG_PRINT(x)
-#define DEBUG_PRINTLN(x)
 #endif
 
 /**************************************************************************
@@ -262,7 +259,7 @@ bool setupWifi(bool resetConf)
     DEBUG_PRINTLN("mounted file system");
     if (SPIFFS.exists("/config.json")) {
       //file exists, reading and loading
-      ;("reading config file");
+      DEBUG_PRINTLN("reading config file");
       File configFile = SPIFFS.open("/config.json", "r");
       if (configFile) {
         DEBUG_PRINTLN("opened config file");
@@ -431,7 +428,7 @@ void setup()
 
         digitalWrite(LED_PIN, LOW);
         ticker.attach(0.5, disableLed);
-        for (int x = 0; x < root.size(); x++) {
+        for (unsigned int x = 0; x < root.size(); x++) {
           String type = root[x]["type"];
           String ip = root[x]["ip"];
           int rdelay = root[x]["rdelay"];
